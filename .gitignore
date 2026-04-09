@@ -1,0 +1,30 @@
+# --- SEGURANÇA E AMBIENTE ---
+.env
+.venv/
+node_modules/
+dist/
+build/
+
+# --- DADOS DO ROBÔ (O MAIS IMPORTANTE) ---
+# Em vez de ignorar *.pdf, *.xlsx, etc, ignoramos a pasta onde eles moram
+arquivos/
+*.db
+*.sqlite
+erro_*.png
+
+# --- PYTHON ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# --- CONFIGURAÇÕES DE EDITOR ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- SISTEMA ---
+.DS_Store
+Thumbs.db
