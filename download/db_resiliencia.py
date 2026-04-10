@@ -25,29 +25,36 @@ class ResilienciaDB:
                     cod_emp TEXT,
                     nome_emp TEXT,
                     descricao TEXT,
-                    status TEXT, -- SUCESSO, PENDENTE, ALERTA_HUMANO, ERRO_API
+                    status TEXT,
+                    caminho_pasta TEXT,            
+                    qtd_anexos_esperados INTEGER,  
                     tentativas INTEGER DEFAULT 0,
                     ultima_tentativa TIMESTAMP,
                     erro_detalhe TEXT
                 )
             """)
-            try:
-                conn.execute("ALTER TABLE downloads ADD COLUMN descricao TEXT")
-            except sqlite3.OperationalError:
-                pass
+            colunas_novas = [
+                "ADD COLUMN descricao TEXT",
+                "ADD COLUMN caminho_pasta TEXT",
+                "ADD COLUMN qtd_anexos_esperados INTEGER"
+            ]
+            for alteracao in colunas_novas:
+                try:
+                    conn.execute(f"ALTER TABLE downloads {alteracao}")
+                except sqlite3.OperationalError:
+                    pass
 
-    def registrar_ou_atualizar(self, id_ticket, cod_emp, nome_emp, status, erro="", descricao=""):
+    def registrar_ou_atualizar(self, id_ticket, cod_emp, nome_emp, status, caminho_pasta, qtd_anexos, erro="", descricao=""):
         with self._conectar() as conn:
             conn.execute("""
-                INSERT INTO downloads (id_ticket, cod_emp, nome_emp, descricao, status, tentativas, ultima_tentativa, erro_detalhe)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                INSERT INTO downloads (id_ticket, cod_emp, nome_emp, descricao, status, caminho_pasta, qtd_anexos_esperados, tentativas, ultima_tentativa, erro_detalhe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                 ON CONFLICT(id_ticket) DO UPDATE SET
                     status = excluded.status,
-                    descricao = excluded.descricao,
-                    tentativas = tentativas + 1,
-                    ultima_tentativa = excluded.ultima_tentativa,
-                    erro_detalhe = excluded.erro_detalhe
-            """, (id_ticket, cod_emp, nome_emp, descricao, status, datetime.now(), erro))
+                    caminho_pasta = excluded.caminho_pasta,
+                    qtd_anexos_esperados = excluded.qtd_anexos_esperados,
+                    ultima_tentativa = excluded.ultima_tentativa
+            """, (id_ticket, cod_emp, nome_emp, descricao, status, str(caminho_pasta), qtd_anexos, datetime.now(), erro))
 
     def get_ticket_status(self, id_ticket):
         with self._conectar() as conn:

@@ -46,7 +46,7 @@ load_dotenv(dotenv_path=caminho_env)
 # --- CONFIGURAÇÕES GERAIS ---
 EMAIL = os.getenv("ONVIO_USER")
 SENHA = os.getenv("ONVIO_PASS")
-SECRET_2FA = os.getenv("ONVIO_2FA_SECRET")
+SECRET_2FA = os.getenv("ONVIO_TOKEN")
 
 # Pega o caminho do .env. Se estiver vazio, cria a pasta 'arquivos' na RAIZ do projeto
 caminho_arquivos_env = os.getenv("CAMINHO_ARQUIVOS")
@@ -152,21 +152,17 @@ def capturar_sessao_onvio() -> dict:
         logging.info("Acessando onvio.com.br/login...")
         page.goto("https://onvio.com.br/login/#/", wait_until="networkidle")
         
-        # 2. O CLIQUE NO "ENTRAR" DA PRIMEIRA TELA
+        # 2. O CLIQUE NO "ENTRAR"
         logging.info("Aguardando botão 'Entrar'...")
         try:
-            # Pega exatamente o botão que você mapeou no HTML
             btn_entrar = page.locator("#trauth-continue-signin-btn")
             btn_entrar.wait_for(state="visible", timeout=15000)
-            btn_entrar.click()
+            btn_entrar.click(force=True)
             logging.info("Clicou em 'Entrar'. Aguardando redirecionamento para Thomson Reuters...")
-            
-            # Trava o robô aqui até a URL mudar para a tela de e-mail/senha
             page.wait_for_url("**/auth.thomsonreuters.com/**", timeout=20000)
-            time.sleep(2) # Pausa rápida para a página renderizar os campos
+            time.sleep(2)
         except Exception as e:
             logging.error(f"Falha ao passar da primeira tela: {e}")
-            page.screenshot(path="erro_primeira_tela.png")
             browser.close()
             raise e
 
@@ -175,7 +171,12 @@ def capturar_sessao_onvio() -> dict:
             logging.info(f"Preenchendo e-mail: {EMAIL}")
             page.wait_for_selector("input[name='username']", timeout=15000)
             page.fill("input[name='username']", EMAIL)
-            page.keyboard.press("Enter") 
+            
+            # Clica no botão de prosseguir igual ao script funcional
+            try:
+                page.click("button[type='submit']", timeout=3000)
+            except:
+                page.click("#trauth-continue-signin-btn", timeout=3000)
             time.sleep(3)
         except Exception as e:
             logging.error("Não foi possível encontrar o campo de e-mail.")
@@ -186,34 +187,75 @@ def capturar_sessao_onvio() -> dict:
             logging.info("Aguardando campo de senha...")
             page.wait_for_selector("#password", timeout=15000)
             page.fill("#password", SENHA)
-            page.keyboard.press("Enter")
-            time.sleep(3)
+            
+            # IGUAL AO SCRIPT FUNCIONAL: clica no botão específico em vez de dar Enter
+            page.click("button._button-login-password", force=True)
+            logging.info("Senha preenchida e confirmada.")
+            time.sleep(4)
         except Exception as e:
             logging.error("Não foi possível encontrar o campo de senha.")
             raise e
 
-        # 5. TRATAMENTO DO 2FA
+        # 5. TRATAMENTO DO 2FA (A blindagem da sua outra aplicação)
         try:
-            # Verifica se o campo de código apareceu
-            campo_code = page.locator("input[type='tel'], input[name='code']").first
-            if campo_code.is_visible(timeout=10000):
+            logging.info("Verificando se há seleção de método 2FA...")
+            
+            seletor_aria = "button[aria-label='Autenticador Google ou similar']"
+            seletor_value = "button[value='otp::0']"
+
+            if page.locator(seletor_aria).is_visible(timeout=5000):
+                logging.info("Botão 'Autenticador Google' detectado (via aria-label). Clicando...")
+                page.click(seletor_aria, force=True)
+                time.sleep(2)
+            elif page.locator(seletor_value).is_visible(timeout=2000):
+                logging.info("Botão 'Autenticador Google' detectado (via value). Clicando...")
+                page.click(seletor_value, force=True)
+                time.sleep(2)
+            elif page.locator("text=Autenticador Google").is_visible(timeout=2000):
+                logging.info("Clicando no texto 'Autenticador Google' (fallback)...")
+                page.click("text=Autenticador Google", force=True)
+                time.sleep(2)
+
+            # Tela do Código 2FA
+            if (page.locator("text=código").count() > 0 or 
+                page.locator("input[type='tel']").count() > 0 or 
+                page.locator("text=verificação").count() > 0):
+                
+                logging.info("Tela de digitação do código detectada.")
+
                 if SECRET_2FA:
-                    logging.info("Gerando e preenchendo código 2FA...")
-                    token_2fa = pyotp.TOTP(SECRET_2FA).now()
-                    campo_code.fill(token_2fa)
-                    page.keyboard.press("Enter")
+                    totp = pyotp.TOTP(SECRET_2FA)
+                    codigo = totp.now()
+                    logging.info(f"Gerando token 2FA: {codigo}")
+
+                    campo_code = page.locator("input[type='tel'], input[name='code'], input.input-code").first
+                    if campo_code.is_visible(timeout=5000):
+                        campo_code.fill(codigo)
+                        
+                        # Tenta clicar no submit ou verificar
+                        try:
+                            page.click("button[type='submit']", timeout=2000)
+                        except:
+                            pass
+                        try:
+                            page.click("button:has-text('Verificar')", timeout=2000)
+                        except:
+                            pass
+                            
+                        time.sleep(5)
                 else:
                     logging.warning("2FA solicitado! Digite manualmente no navegador...")
                     time.sleep(30)
-        except:
-            logging.info("2FA não solicitado nesta sessão.")
+        except Exception as e:
+            logging.info("Nenhum 2FA detectado ou tela já passou. Avançando...")
+            time.sleep(5)
 
         # 6. CAPTURA DOS DADOS (API)
         logging.info("Navegando para o Portal do Cliente para interceptar a API...")
         page.goto("https://onvio.com.br/br-portal-do-cliente/service-requesting/general", wait_until="networkidle")
         
-        # Aguarda um tempo generoso para a API ser disparada e interceptada
-        timeout_intercept = time.time() + 15
+        # Aguarda o interceptor pegar o token
+        timeout_intercept = time.time() + 20
         while not sessao["token"] and time.time() < timeout_intercept:
             time.sleep(1)
 
@@ -223,6 +265,7 @@ def capturar_sessao_onvio() -> dict:
             raise Exception("Falha ao capturar o Token UDSLongToken. Verifique se a página carregou as solicitações.")
             
         return sessao
+    
     
 
 def buscar_anexos(http, ticket_id):
@@ -293,8 +336,16 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
     
     if not anexos:
         logging.info(f"Ticket [{num_ticket}]: Sem anexos. Marcado como concluído.")
-        # Salva no banco com a descrição e encerra aqui para este ticket
-        db_res.registrar_ou_atualizar(num_ticket, cod_emp, nome_cliente, "SUCESSO", erro="", descricao=descricao_ticket)
+        db_res.registrar_ou_atualizar(
+            id_ticket=num_ticket, 
+            cod_emp=cod_emp, 
+            nome_emp=nome_cliente, 
+            status="SUCESSO", 
+            caminho_pasta="", 
+            qtd_anexos=0, 
+            erro="", 
+            descricao=descricao_ticket
+        )
         return True
 
     # Tem anexo cria a pasta!
@@ -329,7 +380,16 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
             status_final = "ERRO_API"
             erro_detalhe = "Falha ao gerar link de download"
 
-    db_res.registrar_ou_atualizar(num_ticket, cod_emp, nome_cliente, status_final, erro=erro_detalhe, descricao=descricao_ticket)
+    db_res.registrar_ou_atualizar(
+        id_ticket=num_ticket, 
+        cod_emp=cod_emp, 
+        nome_emp=nome_cliente, 
+        status=status_final, 
+        caminho_pasta=str(pasta_ticket), 
+        qtd_anexos=len(anexos), 
+        erro=erro_detalhe, 
+        descricao=descricao_ticket
+    )
     return status_final == "SUCESSO"
 
 
