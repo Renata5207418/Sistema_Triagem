@@ -78,28 +78,42 @@ def get_resumo_dashboard():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
 @app.get("/api/triagem/auditoria")
 def get_auditoria_triagem():
-    """Retorna a lista unificada para a tabela de Auditoria."""
+    """Retorna a lista unificada puxando os dados REAIS da tabela de downloads."""
     query = """
         SELECT 
             dt.id,
             dt.id_ticket as os, 
-            dt.nome_original, 
+            dt.nome_original as arquivo,
             dt.categoria_ia, 
             dt.status as status_triagem,
-            dt.motivo_erro,
-            d.status as status_download
+            
+            -- Puxa do seu ResilienciaDB (tabela downloads)
+            d.status as status_download,
+            d.cod_emp as cod_empresa,
+            d.nome_emp as nome_empresa,
+            
+            -- A 'descricao' é a mensagem do cliente!
+            d.descricao as mensagem,
+            
+            -- Lógica para o Tomados (Ajustaremos quando o módulo estiver 100%)
+            CASE 
+                WHEN dt.status = 'SUCESSO' THEN 'LIBERADO'
+                ELSE 'AGUARDANDO'
+            END as status_tomados
+
         FROM documentos_triados dt
         LEFT JOIN downloads d ON dt.id_ticket = d.id_ticket
         ORDER BY dt.id_ticket DESC
-        LIMIT 500 -- Limita para a tela não travar inicialmente
     """
     try:
-        resultados = executar_query_dict(query)
-        return resultados
+        return executar_query_dict(query)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
 
 @app.get("/api/erros/senhas")
 def get_erros_senha():
