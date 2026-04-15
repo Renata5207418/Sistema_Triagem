@@ -8,6 +8,7 @@ build/
 # --- DADOS DO ROBÔ (O MAIS IMPORTANTE) ---
 # Em vez de ignorar *.pdf, *.xlsx, etc, ignoramos a pasta onde eles moram
 arquivos/
+CLIENTES_REDE
 *.db
 *.sqlite
 erro_*.png

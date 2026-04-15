@@ -16,8 +16,8 @@ pasta_atual = str(Path(__file__).parent)
 if pasta_atual not in sys.path:
     sys.path.append(pasta_atual)
 
-from db_dominio import DatabaseConnection
-from db_resiliencia import ResilienciaDB
+from db.db_dominio import DatabaseConnection
+from db.db_resiliencia import ResilienciaDB
 
 
     
@@ -308,7 +308,6 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
     # =========================================================
     client_info = ticket_obj.get("clientExpanded", {})
     nome_cliente = str(client_info.get("name", "DESCONHECIDO")).strip().upper()
-    descricao_ticket = ticket_obj.get("description") or ""
     
     # Tenta pegar o código direto do campo 'code' que você achou
     cod_onvio = client_info.get("code")
@@ -344,9 +343,13 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
             caminho_pasta="", 
             qtd_anexos=0, 
             erro="", 
-            descricao=descricao_ticket
         )
         return True
+    
+    # 🚀 TRAVA DE TESTE: Baixa apenas os últimos 5 arquivos
+    anexos_para_baixar = anexos[-5:]
+    if len(anexos) > 5:
+        logging.info(f"Ticket [{num_ticket}]: Limitando download para os últimos {len(anexos_para_baixar)} arquivos de {len(anexos)}.")
 
     # Tem anexo cria a pasta!
     pasta_ticket = PASTA_RAIZ / f"{cod_emp} - {nome_pasta_cliente}" / pasta_periodo / str(num_ticket)
@@ -355,7 +358,8 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
     status_final = "SUCESSO"
     erro_detalhe = ""
 
-    for att in anexos:
+    # CORREÇÃO AQUI: loop usa a lista limitada
+    for att in anexos_para_baixar:
         att_id = att.get("id")
         nome_arquivo = att.get("name", f"arquivo_{att_id}")
         
@@ -380,19 +384,22 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
             status_final = "ERRO_API"
             erro_detalhe = "Falha ao gerar link de download"
 
+    # CORREÇÃO AQUI: Salva a quantidade limitada para a Triagem não dar erro de divergência
     db_res.registrar_ou_atualizar(
         id_ticket=num_ticket, 
         cod_emp=cod_emp, 
         nome_emp=nome_cliente, 
         status=status_final, 
         caminho_pasta=str(pasta_ticket), 
-        qtd_anexos=len(anexos), 
+        qtd_anexos=len(anexos_para_baixar), 
         erro=erro_detalhe, 
-        descricao=descricao_ticket
     )
     return status_final == "SUCESSO"
 
 
+# ==========================================
+# 4. ORQUESTRAÇÃO
+# ==========================================
 # ==========================================
 # 4. ORQUESTRAÇÃO
 # ==========================================
@@ -421,29 +428,38 @@ def executar_download():
     res = http.get(sessao["url_completa"])
     if res.status_code == 200:
         tickets = res.json().get("items", [])
-        for t in tickets:
+        
+        # 🚀 NOVA TRAVA DE TESTE: Pega apenas os 5 primeiros tickets (solicitações)
+        tickets_para_teste = tickets[:5]
+        logging.info(f"MODO TESTE: Processando apenas {len(tickets_para_teste)} solicitações de um total de {len(tickets)}.")
+        
+        for t in tickets_para_teste:
             baixar_ticket(http, db_res, t, mapa_empresas)
 
+    # =======================================================
+    # ⚠️ COMENTADO PARA TESTES: Evita baixar tickets extras 
+    # =======================================================
+    
     # 5. Caçar GAPS 
-    logging.info("Verificando se existem solicitações puladas (GAPs)...")
-    gaps = db_res.detectar_gaps(limite_retroativo=100)
-    for g_num in gaps:
-        logging.info(f"Tentando recuperar GAP: {g_num}")
-        res_gap = http.get(f"{URL_BASE_API}/tickets?identifier={g_num}")
-        if res_gap.status_code == 200:
-            items = res_gap.json().get("items", [])
-            if items:
-                baixar_ticket(http, db_res, items[0], mapa_empresas)
+    # logging.info("Verificando se existem solicitações puladas (GAPs)...")
+    # gaps = db_res.detectar_gaps(limite_retroativo=100)
+    # for g_num in gaps:
+    #     logging.info(f"Tentando recuperar GAP: {g_num}")
+    #     res_gap = http.get(f"{URL_BASE_API}/tickets?identifier={g_num}")
+    #     if res_gap.status_code == 200:
+    #         items = res_gap.json().get("items", [])
+    #         if items:
+    #             baixar_ticket(http, db_res, items[0], mapa_empresas)
 
     # 6. Retentar erros e pendentes
-    logging.info("Retentando tickets com erro ou pendentes...")
-    retries = db_res.get_pendentes_para_retry()
-    for r_num in retries:
-        res_retry = http.get(f"{URL_BASE_API}/tickets?identifier={r_num}")
-        if res_retry.status_code == 200:
-            items = res_retry.json().get("items", [])
-            if items:
-                baixar_ticket(http, db_res, items[0], mapa_empresas)
+    # logging.info("Retentando tickets com erro ou pendentes...")
+    # retries = db_res.get_pendentes_para_retry()
+    # for r_num in retries:
+    #     res_retry = http.get(f"{URL_BASE_API}/tickets?identifier={r_num}")
+    #     if res_retry.status_code == 200:
+    #         items = res_retry.json().get("items", [])
+    #         if items:
+    #             baixar_ticket(http, db_res, items[0], mapa_empresas)
 
     logging.info("PROCESSO FINALIZADO!")
 

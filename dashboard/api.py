@@ -1,5 +1,8 @@
+import os
 import sqlite3
+import zipfile
 from pathlib import Path
+from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -44,6 +47,36 @@ def executar_update(query, params=()):
 # ==========================================
 # ROTAS DA API
 # ==========================================
+@app.get("/api/download/tomados/{os_id}")
+def baixar_tomados_zip(os_id: int):
+    """Gera um ZIP contendo apenas os TXTs convertidos para CSV (Excel)."""
+    
+    query = "SELECT caminho_pasta FROM downloads WHERE id_ticket = ?"
+    resultado = executar_query_dict(query, (os_id,))
+    
+    if not resultado or not resultado[0]['caminho_pasta']:
+        raise HTTPException(status_code=404, detail="Pasta da OS não encontrada.")
+    
+    caminho_raiz = Path(resultado[0]['caminho_pasta'])
+    pasta_tomadas = caminho_raiz / "NOTAS_DE_SERVICO" / "TOMADAS"
+    
+    if not pasta_tomadas.exists():
+        raise HTTPException(status_code=404, detail="Pasta TOMADAS não encontrada.")
+
+    zip_path = caminho_raiz / f"Dados_Dominio_OS{os_id}.zip"
+
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for arquivo in pasta_tomadas.iterdir():
+            if arquivo.is_file() and arquivo.suffix.lower() == '.txt':
+                nome_excel = arquivo.stem + ".csv"
+                zipf.write(arquivo, arcname=nome_excel)
+
+    return FileResponse(
+        path=zip_path, 
+        media_type="application/zip", 
+        filename=f"OS{os_id}_Planilhas_Dominio.zip"
+    )
+
 
 @app.get("/api/resumo")
 def get_resumo_dashboard():
@@ -82,7 +115,7 @@ def get_resumo_dashboard():
 
 @app.get("/api/triagem/auditoria")
 def get_auditoria_triagem():
-    """Retorna a lista unificada puxando os dados REAIS da tabela de downloads."""
+    """Retorna a lista unificada puxando os dados REAIS da tabela de downloads e do status da IA."""
     query = """
         SELECT 
             dt.id,
@@ -90,20 +123,12 @@ def get_auditoria_triagem():
             dt.nome_original as arquivo,
             dt.categoria_ia, 
             dt.status as status_triagem,
+            dt.status_tomados, -- <-- AQUI ESTÁ A MÁGICA! Puxando o status real do banco.
             
-            -- Puxa do seu ResilienciaDB (tabela downloads)
             d.status as status_download,
             d.cod_emp as cod_empresa,
             d.nome_emp as nome_empresa,
-            
-            -- A 'descricao' é a mensagem do cliente!
-            d.descricao as mensagem,
-            
-            -- Lógica para o Tomados (Ajustaremos quando o módulo estiver 100%)
-            CASE 
-                WHEN dt.status = 'SUCESSO' THEN 'LIBERADO'
-                ELSE 'AGUARDANDO'
-            END as status_tomados
+            d.descricao as mensagem
 
         FROM documentos_triados dt
         LEFT JOIN downloads d ON dt.id_ticket = d.id_ticket
@@ -113,7 +138,8 @@ def get_auditoria_triagem():
         return executar_query_dict(query)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+
 
 @app.get("/api/erros/senhas")
 def get_erros_senha():
@@ -128,6 +154,7 @@ def get_erros_senha():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/documentos/{doc_id}/senha")
 def resolver_senha(doc_id: int, request: SenhaRequest):
     """Recebe a senha do usuário e atualiza o banco para reprocessamento."""
@@ -139,7 +166,8 @@ def resolver_senha(doc_id: int, request: SenhaRequest):
         return {"mensagem": "Senha registrada com sucesso. Arquivo na fila de reprocessamento."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-        
+
+
 @app.put("/api/documentos/{doc_id}/categoria")
 def atualizar_categoria(doc_id: int, request: AtualizarCategoriaRequest):
     """Permite que o analista altere a categoria caso a IA tenha errado."""

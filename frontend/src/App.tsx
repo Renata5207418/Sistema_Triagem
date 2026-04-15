@@ -67,7 +67,9 @@ function TelaAcompanhamento() {
           status_download: doc.status_download,
           mensagem: doc.mensagem,
           arquivos: [],
-          temErroTriagem: false // Flag para sabermos se a OS inteira tem problema
+          temErroTriagem: false,
+          temTomadosPendente: false,
+          temTomadosProcessado: false
         }
       }
       
@@ -78,16 +80,33 @@ function TelaAcompanhamento() {
         acc[doc.os].temErroTriagem = true;
       }
 
+      // Rastreador real do módulo Tomados
+      if (doc.categoria_ia === 'nota_servico') {
+         if (doc.status_tomados === 'PENDENTE') acc[doc.os].temTomadosPendente = true;
+         if (doc.status_tomados === 'PROCESSADO') acc[doc.os].temTomadosProcessado = true;
+      }
+
       return acc
     }, {})
 
     // Converte o objeto em array e define os status finais da OS
-    return Object.values(mapa).map((grupo: any) => ({
-      ...grupo,
-      status_triagem_geral: grupo.temErroTriagem ? 'ERRO' : 'SUCESSO',
-      // Provisório: Libera a planilha da OS se não houver erro na triagem
-      status_tomados_geral: grupo.temErroTriagem ? 'PENDENTE' : 'LIBERADO' 
-    })) as any[]
+    return Object.values(mapa).map((grupo: any) => {
+      
+      // Lógica do Status Tomados GERAL
+      let status_tomados = 'N/A'; // Padrão: não tem nota de serviço nessa OS
+      
+      if (grupo.temTomadosPendente) {
+          status_tomados = 'PROCESSANDO';
+      } else if (grupo.temTomadosProcessado) {
+          status_tomados = 'CONCLUIDO';
+      }
+
+      return {
+        ...grupo,
+        status_triagem_geral: grupo.temErroTriagem ? 'ERRO' : 'SUCESSO',
+        status_tomados_geral: status_tomados
+      }
+    }) as any[]
 
   }, [documentosFlat])
 
@@ -116,7 +135,6 @@ function TelaAcompanhamento() {
               <th style={{ textAlign: 'center' }}>Download</th>
               <th style={{ textAlign: 'center' }}>Triagem</th>
               <th style={{ textAlign: 'center' }}>Tomados</th>
-              <th style={{ textAlign: 'center' }}>Mensagem</th>
             </tr>
           </thead>
           <tbody>
@@ -152,22 +170,41 @@ function TelaAcompanhamento() {
 
                   {/* Ação de Tomados Mapeada para a OS inteira */}
                   <td style={{ textAlign: 'center' }}>
-                    {grupo.status_tomados_geral === 'LIBERADO' ? (
-                      <button className="btn-primary" style={{ padding: '6px 14px' }}>
-                        <Download size={14} /> Planilha
-                      </button>
+                    {grupo.status_tomados_geral === 'CONCLUIDO' ? (
+                      <a 
+                        href={`http://127.0.0.1:8000/api/download/tomados/${grupo.os}`}
+                        title="Baixar lote de arquivos (.zip)"
+                        style={{ 
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px', 
+                          background: 'transparent', 
+                          color: 'var(--text-muted)', 
+                          border: '1px solid var(--border)', 
+                          borderRadius: '6px',
+                          textDecoration: 'none',
+                          fontSize: '0.75rem',
+                          fontWeight: 500,
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => { 
+                          e.currentTarget.style.background = 'var(--bg-app)'; 
+                          e.currentTarget.style.color = 'var(--text-main)';
+                        }}
+                        onMouseLeave={(e) => { 
+                          e.currentTarget.style.background = 'transparent'; 
+                          e.currentTarget.style.color = 'var(--text-muted)';
+                        }}
+                      >
+                        <Download size={14} /> Lote TXT
+                      </a>
+                    ) : grupo.status_tomados_geral === 'PROCESSANDO' ? (
+                      <span className="status-badge status-pendente">Aguardando IA...</span>
                     ) : (
-                      <span className="status-badge status-pendente">{grupo.status_tomados_geral}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>N/A</span>
                     )}
-                  </td>
-
-                  <td style={{ textAlign: 'center' }}>
-                    {grupo.mensagem ? (
-                      <button onClick={() => setModalMsg(grupo.mensagem)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)' }}>
-                        <MessageSquare size={20} />
-                      </button>
-                    ) : <span style={{ color: 'var(--border)' }}>-</span>}
-                  </td>
+                  </td>               
                 </tr>
 
                 {/* LINHA FILHA (Arquivos limpos) */}
@@ -218,20 +255,7 @@ function TelaAcompanhamento() {
             </button>
           </div>
         </div>
-      </div>
-
-      {/* MODAL MENSAGEM */}
-      {modalMsg && (
-        <div className="modal-backdrop" onClick={() => setModalMsg(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ color: 'var(--primary)' }}>Mensagem da OS</h3>
-              <button onClick={() => setModalMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
-            </div>
-            <p style={{ lineHeight: 1.6 }}>{modalMsg}</p>
-          </div>
-        </div>
-      )}
+      </div>      
     </div>
   )
 }
@@ -250,7 +274,7 @@ function LayoutPrincipal() {
             <img src="/triabot.png" alt="TriaBot" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
           </div>
           
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'white' }}>Triagem Cloud</h1>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'white' }}>TRIAGEM</h1>
         </div>
         
         <nav style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '4px' }}>

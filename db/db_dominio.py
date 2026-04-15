@@ -1,13 +1,12 @@
 import os
+import re
 import pyodbc
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
-
 caminho_env = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=caminho_env)
-
 
 class DatabaseConnection:
     def __init__(self):
@@ -50,7 +49,6 @@ class DatabaseConnection:
                 nome_completo = str(row[1]).strip().upper() if row[1] else ""
                 apelido = str(row[2]).strip().upper() if row[2] else None
                 
-                # Ambos apontam para o mesmo código
                 if nome_completo and len(nome_completo) > 2:
                     mapeamento[nome_completo] = codigo
                 if apelido and len(apelido) > 2:
@@ -60,6 +58,43 @@ class DatabaseConnection:
         except Exception as e:
             logging.error(f"Erro ao listar empresas: {e}")
             return {}
+        finally:
+            cursor.close()
+
+    def obter_cnpjs_do_grupo(self, cod_emp: str) -> list:
+        """
+        Descobre o CNPJ da empresa pelo cod_emp e retorna uma lista 
+        contendo esse CNPJ e de todas as suas filiais (mesmo radical).
+        """
+        if not self.conn:
+            return []
+            
+        cursor = self.conn.cursor()
+        try:
+            # 1. Pega o CNPJ da empresa dona da OS
+            cursor.execute("SELECT cgce_emp FROM bethadba.geempre WHERE codi_emp = ?", (cod_emp,))
+            row = cursor.fetchone()
+            
+            if not row or not row[0]:
+                return []
+                
+            cnpj_original = str(row[0])
+            
+            # 2. Limpa e extrai o radical (8 primeiros dígitos)
+            clean = re.sub(r"\D", "", cnpj_original)[:8]
+            radical = clean if len(clean) >= 8 else clean
+            
+            # 3. Busca todos os CNPJs que começam com esse radical
+            query_filiais = "SELECT cgce_emp FROM bethadba.geempre WHERE cgce_emp LIKE ?"
+            cursor.execute(query_filiais, (f"{radical}%",))
+            
+            # Retorna uma lista de strings limpas contendo apenas os números
+            cnpjs_grupo = [re.sub(r"\D", "", str(r[0])) for r in cursor.fetchall() if r[0]]
+            return cnpjs_grupo
+            
+        except Exception as e:
+            logging.error(f"Erro ao buscar grupo de CNPJs para empresa {cod_emp}: {e}")
+            return []
         finally:
             cursor.close()
 
