@@ -115,7 +115,6 @@ def get_resumo_dashboard():
 
 @app.get("/api/triagem/auditoria")
 def get_auditoria_triagem():
-    """Retorna a lista unificada puxando os dados REAIS da tabela de downloads e do status da IA."""
     query = """
         SELECT 
             dt.id,
@@ -123,12 +122,14 @@ def get_auditoria_triagem():
             dt.nome_original as arquivo,
             dt.categoria_ia, 
             dt.status as status_triagem,
-            dt.status_tomados, -- <-- AQUI ESTÁ A MÁGICA! Puxando o status real do banco.
+            dt.status_tomados,
             
             d.status as status_download,
             d.cod_emp as cod_empresa,
             d.nome_emp as nome_empresa,
-            d.descricao as mensagem
+            d.descricao as mensagem,
+            d.verificado, -- <-- NOVO: Traz se já foi validado (0 ou 1)
+            d.ultima_tentativa as data_os -- <-- NOVO: Traz a data da OS
 
         FROM documentos_triados dt
         LEFT JOIN downloads d ON dt.id_ticket = d.id_ticket
@@ -139,6 +140,23 @@ def get_auditoria_triagem():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.put("/api/os/{os_id}/verificar")
+def verificar_os(os_id: int):
+    try:
+        executar_update("UPDATE downloads SET verificado = 1 WHERE id_ticket = ?", (os_id,))
+        return {"mensagem": "OS validada com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/os/{os_id}/desmarcar")
+def desmarcar_os(os_id: int):
+    try:
+        executar_update("UPDATE downloads SET verificado = 0 WHERE id_ticket = ?", (os_id,))
+        return {"mensagem": "OS retornada para pendentes."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/erros/senhas")
