@@ -1,12 +1,19 @@
 import os
+import sys
 import sqlite3
 import zipfile
 from pathlib import Path
+from datetime import datetime
 from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+
+RAIZ_PROJETO = Path(__file__).parent.parent
+sys.path.append(str(RAIZ_PROJETO))
+
+from auth import auth
 
 # --- CONFIGURAÇÕES ---
 app = FastAPI(title="API Triagem Cloud", description="Backend para o Dashboard RPA")
@@ -20,8 +27,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+
 RAIZ_PROJETO = Path(__file__).parent.parent
 DB_PATH = RAIZ_PROJETO / "banco_rpa.db"
+
+# --- MODELO PARA RECEBER O USUÁRIO ---
+class VerificacaoRequest(BaseModel):
+    usuario: str
+
 
 # --- MODELOS DE DADOS (Para validação do que entra na API) ---
 class SenhaRequest(BaseModel):
@@ -29,6 +43,7 @@ class SenhaRequest(BaseModel):
 
 class AtualizarCategoriaRequest(BaseModel):
     nova_categoria: str
+
 
 # --- FUNÇÕES DE BANCO DE DADOS ---
 def executar_query_dict(query, params=()):
@@ -112,6 +127,22 @@ def get_resumo_dashboard():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- INÍCIO DA AUTO-CURA DO BANCO ---
+def garantir_colunas_auditoria():
+    """Garante que as colunas de auditoria existam no banco, prevenindo Erro 500."""
+    with sqlite3.connect(DB_PATH) as conn:
+        try: 
+            conn.execute("ALTER TABLE downloads ADD COLUMN auditado_por TEXT")
+        except sqlite3.OperationalError: 
+            pass
+            
+        try: 
+            conn.execute("ALTER TABLE downloads ADD COLUMN data_auditoria TEXT")
+        except sqlite3.OperationalError: 
+            pass
+            
+garantir_colunas_auditoria()
+# --- FIM DA AUTO-CURA ---
 
 @app.get("/api/triagem/auditoria")
 def get_auditoria_triagem():
@@ -128,8 +159,10 @@ def get_auditoria_triagem():
             d.cod_emp as cod_empresa,
             d.nome_emp as nome_empresa,
             d.descricao as mensagem,
-            d.verificado, -- <-- NOVO: Traz se já foi validado (0 ou 1)
-            d.ultima_tentativa as data_os -- <-- NOVO: Traz a data da OS
+            d.verificado,
+            d.ultima_tentativa as data_os,
+            d.auditado_por,    
+            d.data_auditoria
 
         FROM documentos_triados dt
         LEFT JOIN downloads d ON dt.id_ticket = d.id_ticket
@@ -142,9 +175,17 @@ def get_auditoria_triagem():
 
 
 @app.put("/api/os/{os_id}/verificar")
-def verificar_os(os_id: int):
+def verificar_os(os_id: int, request: VerificacaoRequest):
     try:
-        executar_update("UPDATE downloads SET verificado = 1 WHERE id_ticket = ?", (os_id,))
+        data_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        query = """
+            UPDATE downloads 
+            SET verificado = 1, 
+                auditado_por = ?, 
+                data_auditoria = ? 
+            WHERE id_ticket = ?
+        """
+        executar_update(query, (request.usuario, data_atual, os_id))
         return {"mensagem": "OS validada com sucesso!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

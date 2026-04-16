@@ -35,7 +35,9 @@ class ResilienciaDB:
                     tentativas INTEGER DEFAULT 0,
                     ultima_tentativa TIMESTAMP,
                     erro_detalhe TEXT,
-                    verificado INTEGER DEFAULT 0 -- 0 = Pendente de revisão humana, 1 = Ok/Concluído
+                    verificado INTEGER DEFAULT 0,
+                    auditado_por TEXT,
+                    data_auditoria TEXT
                 )                
             """)
             
@@ -43,7 +45,9 @@ class ResilienciaDB:
             colunas_novas_down = [
                 "ADD COLUMN descricao TEXT",
                 "ADD COLUMN caminho_pasta TEXT",
-                "ADD COLUMN qtd_anexos_esperados INTEGER"
+                "ADD COLUMN qtd_anexos_esperados INTEGER",
+                "ADD COLUMN auditado_por TEXT",
+                "ADD COLUMN data_auditoria TEXT"
             ]
             for alteracao in colunas_novas_down:
                 try: conn.execute(f"ALTER TABLE downloads {alteracao}")
@@ -146,6 +150,52 @@ class ResilienciaDB:
                     FOREIGN KEY(id_documento) REFERENCES documentos_triados(id)
                 )
             """)
+
+            # ==========================================
+            # 5. TABELA DE USUÁRIOS (Autenticação)
+            # ==========================================
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    full_name TEXT,
+                    hashed_password TEXT NOT NULL,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+    # ==========================================
+    # MÉTODOS DE USUÁRIOS E AUTENTICAÇÃO
+    # ==========================================
+    def get_user_by_username(self, username):
+        with self._conectar() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT * FROM usuarios WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_user_by_email(self, email):
+        with self._conectar() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT * FROM usuarios WHERE email = ?", (email,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def insert_user(self, username, email, full_name, hashed_password):
+        with self._conectar() as conn:
+            cursor = conn.execute("""
+                INSERT INTO usuarios (username, email, full_name, hashed_password)
+                VALUES (?, ?, ?, ?)
+            """, (username, email, full_name, hashed_password))
+            conn.commit()
+            return cursor.lastrowid
+            
+    def update_password(self, username, new_hashed_password):
+         with self._conectar() as conn:
+            conn.execute("UPDATE usuarios SET hashed_password = ? WHERE username = ?", (new_hashed_password, username))
+            conn.commit()       
 
 
     # ==========================================
@@ -273,5 +323,4 @@ class ResilienciaDB:
             conn.execute(query, params)
             conn.commit()
 
-# Instância global para facilitar a importação nos outros arquivos
 db = ResilienciaDB()

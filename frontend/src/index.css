@@ -1,82 +1,398 @@
+@import "tailwindcss";
+
+/* =========================================
+   1. VARIÁVEIS GLOBAIS E RESET
+========================================= */
 :root {
-  /* Paleta Moderna (Inspirada no Tailwind) */
-  --primary: #6366f1; /* Indigo moderno e vibrante */
+  --primary: #6366f1;
   --primary-hover: #4f46e5;
   --primary-light: #e0e7ff;
-  
-  --sidebar-bg: #18181b; /* Preto/Cinza bem escuro (Zinc 900) */
+  --sidebar-bg: #18181b;
   --sidebar-text: #a1a1aa;
   --sidebar-active: #ffffff;
-  
   --bg-app: #f4f4f5; 
   --bg-card: #ffffff;
-  
   --text-main: #27272a;
   --text-muted: #71717a;
   --border: #e4e4e7;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Inter', -apple-system, sans-serif; background-color: var(--bg-app); color: var(--text-main); -webkit-font-smoothing: antialiased; }
 
-/* Layout Estrutural */
-.app-layout { display: flex; min-height: 100vh; }
+body { 
+  font-family: 'Inter', -apple-system, sans-serif; 
+  background-color: var(--bg-app); 
+  color: var(--text-main); 
+  -webkit-font-smoothing: antialiased; 
+}
 
-/* Menu Lateral */
-.sidebar { width: 260px; background: var(--sidebar-bg); border-right: 1px solid #27272a; padding: 2rem 1rem; display: flex; flex-direction: column; }
-.nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--sidebar-text); text-decoration: none; border-radius: 8px; font-weight: 500; margin-bottom: 8px; transition: all 0.2s ease; }
-.nav-item:hover { background: rgba(255,255,255,0.08); color: var(--sidebar-active); cursor: pointer; }
-.nav-item.active { background: rgba(99, 102, 241, 0.15); color: var(--primary); border-left: 4px solid var(--primary); }
+/* =========================================
+   2. LAYOUT ESTRUTURAL
+========================================= */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-app);
+}
 
-.main-content { flex: 1; padding: 2.5rem 3rem; overflow-y: auto; }
-.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05); }
+.main-content {
+  flex: 1;
+  padding: 2.5rem 3rem;
+  overflow-y: auto;
+}
 
-/* Barra de Busca Topo */
-.search-bar-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-.global-search { padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-main); font-size: 0.875rem; width: 300px; transition: 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-.global-search:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+/* =========================================
+   3. SIDEBAR RESPONSIVA (MENU LATERAL)
+========================================= */
+.sidebar {
+  width: 260px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid #27272a;
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  position: relative;
+}
 
-/* Tabela Elegante */
+.sidebar.collapsed {
+  width: 80px;
+}
+
+/* Container da Logo */
+.sidebar-logo-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 3rem;
+  padding-left: 8px;
+  height: 40px; /* Trava a altura para não empurrar os itens abaixo */
+}
+
+.sidebar.collapsed .sidebar-logo-container {
+  padding-left: 0;
+  justify-content: center;
+}
+
+/* Trava a imagem do robô */
+.logo-box {
+  width: 32px;
+  height: 32px;
+  min-width: 32px; /* Evita que o flexbox esmague o robô */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.logo-text {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 1px;
+}
+
+/* Itens de Navegação */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--sidebar-text);
+  text-decoration: none;
+  border-radius: 12px;
+  font-weight: 500;
+  transition: 0.2s;
+  white-space: nowrap; /* Impede a quebra de linha do texto ao fechar a barra */
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 12px;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+.nav-item.active {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary);
+}
+
+.logout-btn {
+  color: #f87171 !important;
+  margin-top: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.logout-btn:hover {
+  background: rgba(248, 113, 113, 0.1) !important;
+}
+
+/* =========================================
+   4. HEADER SUPERIOR
+========================================= */
+.top-header {
+  height: 70px;
+  min-height: 70px; /* Trava a altura */
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px); /* Efeito Vidro */
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  z-index: 10;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.toggle-sidebar-btn {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.2s;
+}
+
+.toggle-sidebar-btn:hover {
+  background: white;
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.breadcrumb-current {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-text-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.welcome-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.user-name {
+  font-size: 0.875rem;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+/* Avatar com o Ponto Verde (Online) */
+.premium-avatar {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--primary), #818cf8);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  position: relative;
+  border: 2px solid white;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+.status-dot {
+  width: 12px;
+  height: 12px;
+  background: #22c55e;
+  border-radius: 50%;
+  border: 2px solid white;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+}
+
+/* =========================================
+   5. COMPONENTES DE INTERFACE (LOGIN, CARDS)
+========================================= */
+.card { 
+  background: var(--bg-card); 
+  border: 1px solid var(--border); 
+  border-radius: 16px; 
+  padding: 1.5rem; 
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); 
+}
+
+/* Login Form */
+.login-form-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-icon-left {
+  position: absolute;
+  left: 16px;
+  color: #94a3b8;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.input-icon-right {
+  position: absolute;
+  right: 16px;
+  color: #94a3b8;
+  cursor: pointer;
+  z-index: 10;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.login-input {
+  width: 100% !important;
+  padding-left: 44px !important;
+  padding-right: 44px !important;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.85rem !important;
+  transition: 0.2s;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-light);
+}
+
+/* =========================================
+   6. TABELAS MODERNAS E BADGES
+========================================= */
+
+/* Container da Página Acompanhamento */
+.page-container { animation: fadeIn 0.4s ease-out; }
+.page-header-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem; }
+.page-title { font-size: 1.75rem; font-weight: 800; color: #1e293b; letter-spacing: -0.02em; }
+.page-subtitle { color: #64748b; font-size: 0.9rem; margin-top: 4px; }
+
+/* Abas (Tabs) */
+.tabs-container { display: flex; gap: 2rem; border-bottom: 2px solid #e2e8f0; margin-bottom: 1.5rem; }
+.tab-item { padding: 0.75rem 0.25rem; font-size: 0.875rem; font-weight: 600; color: #64748b; background: none; border: none; cursor: pointer; position: relative; }
+.tab-item.active { color: var(--primary); }
+.tab-item.active::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 100%; height: 2px; background: var(--primary); }
+
+/* Tabela de Auditoria (Nova) */
+.table-card { background: white; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.04); border: 1px solid #f1f5f9; overflow: hidden; }
+
+.modern-table { width: 100%; border-collapse: collapse; }
+.modern-table th { background: #f8fafc; padding: 1rem 1.5rem; text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid var(--border); }
+.modern-table td { padding: 1.25rem 1.5rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle;}
+
+/* Info Cells (Auditoria) */
+.os-info, .client-info { display: flex; flex-direction: column; }
+.os-number { font-weight: 700; color: var(--primary); font-size: 0.9rem; }
+.os-date, .client-code { font-size: 0.75rem; color: #94a3b8; }
+.client-name { font-weight: 600; color: #334155; font-size: 0.85rem; }
+
+/* Tabela Simples (Dashboard Antigo) */
 .table-container { background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
 .custom-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; }
 .custom-table th { background: #f8fafc; color: var(--text-muted); padding: 14px 16px; font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
 .custom-table td { padding: 16px; border-bottom: 1px solid var(--border); color: var(--text-main); vertical-align: middle; }
 .custom-table tbody tr:hover { background-color: #fbfbfc; }
 
-/* Badges (Estilo Pílula Moderna) */
+/* Badges e Status Pilling */
 .status-badge { padding: 4px 12px; border-radius: 9999px; font-weight: 600; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; letter-spacing: 0.02em; }
 .status-ok { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
 .status-erro { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
 .status-pendente { background: #fef9c3; color: #a16207; border: 1px solid #fef08a; }
 
-/* Botões */
+.status-pill { padding: 4px 10px; border-radius: 8px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; }
+.status-pill.sucesso { background: #f0fdf4; color: #16a34a; }
+
+/* Botões Extras da Tabela */
+.check-btn { color: #e2e8f0; transition: all 0.2s; background: none; border: none; cursor: pointer; }
+.check-btn:hover { color: #cbd5e1; }
+.check-btn.checked { color: #22c55e; cursor: default; }
+
+.action-btn-outline { 
+  border: 1px solid #e2e8f0; background: white; padding: 6px 12px; border-radius: 10px; 
+  font-size: 0.75rem; font-weight: 700; color: #64748b; display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.2s;
+}
+.action-btn-outline:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+
 .btn-expand { background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 6px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
 .btn-expand:hover { background: var(--bg-app); color: var(--primary); }
 
-/* Sub-tabela (Arquivos Expandidos) */
+/* Sub-tabela & Paginação */
 .sub-table-row { background-color: #fafafa; }
 .sub-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; background: transparent; }
 .sub-table th { color: var(--text-muted); font-weight: 600; padding: 10px 16px; border-bottom: 1px solid var(--border); text-transform: none; letter-spacing: normal; }
 .sub-table td { padding: 10px 16px; border-bottom: 1px dashed var(--border); }
 
-/* Paginação */
 .pagination-container { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-top: 1px solid var(--border); background: var(--bg-card); }
 .page-btn { background: white; border: 1px solid var(--border); padding: 6px 14px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--text-main); font-weight: 500; font-size: 0.85rem; transition: 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .page-btn:hover:not(:disabled) { background: #f8fafc; border-color: var(--text-muted); }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 
 /* =========================================
-   CUSTOMIZAÇÃO DO REACT-DATEPICKER 
+   7. CUSTOMIZAÇÃO DO REACT-DATEPICKER 
 ========================================= */
-
-/* 1. O texto do Input (Esconde a caixa feia e mescla com a div) */
 .react-datepicker-wrapper input {
   border: none !important;
   background: transparent !important;
   outline: none !important;
   font-family: inherit !important;
   font-weight: 700 !important;
-  color: #27272a !important; /* Cor do texto escuro */
+  color: #27272a !important;
   text-transform: uppercase !important;
   width: 120px !important;
   cursor: pointer !important;
@@ -84,7 +400,6 @@ body { font-family: 'Inter', -apple-system, sans-serif; background-color: var(--
   box-shadow: none !important;
 }
 
-/* 2. O popover (o balão do calendário em si) */
 .react-datepicker {
   font-family: 'Inter', -apple-system, sans-serif !important;
   border: 1px solid #e4e4e7 !important;
@@ -93,7 +408,6 @@ body { font-family: 'Inter', -apple-system, sans-serif; background-color: var(--
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* 3. O cabeçalho do calendário (Onde fica o ano e as setas) */
 .react-datepicker__header {
   background-color: #f8fafc !important;
   border-bottom: 1px solid #e4e4e7 !important;
@@ -102,23 +416,20 @@ body { font-family: 'Inter', -apple-system, sans-serif; background-color: var(--
   padding-top: 12px !important;
 }
 
-/* 4. Cor do mês selecionado na lista */
 .react-datepicker__month-text--keyboard-selected, 
 .react-datepicker__month-text--selected {
-  background-color: #6366f1 !important; /* Nosso roxo/indigo primário */
+  background-color: #6366f1 !important;
   color: white !important;
   font-weight: bold !important;
   border-radius: 6px !important;
 }
 
-/* 5. Efeito hover ao passar o mouse nos meses */
 .react-datepicker__month-text:hover {
-  background-color: #e0e7ff !important; /* Fundo roxo claro */
+  background-color: #e0e7ff !important;
   color: #6366f1 !important;
   border-radius: 6px !important;
 }
 
-/* 6. Setinhas de navegação de ano */
 .react-datepicker__navigation-icon::before {
   border-color: #71717a !important;
   border-width: 2px 2px 0 0 !important;
