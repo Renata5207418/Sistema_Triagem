@@ -76,7 +76,7 @@ export const Login: React.FC = () => {
         {/* ESQUERDA: BANNER */}
         <div className="hidden md:flex flex-col items-center justify-center w-[45%] bg-[#313033] p-12 text-center relative" style={{ borderRight: '8px solid var(--primary)' }}>
           <div className="absolute w-40 h-40 bg-indigo-500/10 blur-[80px] rounded-full"></div>
-          <img src="/triabot.png" alt="Logo" className="w-full max-w-[160px] mb-8 relative z-10" />
+          <img src="/triabot.png" alt="Logo" className="w-full max-w-[230px] mb-10 relative z-10" />
           <div className="space-y-2 relative z-10">
             <h2 className="text-3xl font-bold text-white tracking-tight">Sistema Triagem</h2>
             <p className="text-xs uppercase font-black tracking-[0.3em] opacity-80" style={{ color: 'var(--primary-light)' }}>Auditoria Inteligente</p>
@@ -134,7 +134,7 @@ export const Login: React.FC = () => {
                   <div className="flex justify-between items-center">
                     <label className="text-[10px] uppercase font-bold text-slate-400 ml-1 tracking-widest">Senha</label>
                     {mode === 'login' && (
-                      <button type="button" onClick={() => setMode('forgot')} className="text-[10px] font-bold text-indigo-500 hover:underline uppercase tracking-widest">Esqueci a senha</button>
+                      <button type="button" onClick={() => setMode('forgot')} className="text-[10px] font-bold text-primary hover:underline tracking-widest">Esqueci a senha</button>
                     )}
                   </div>
                   <div className="input-wrapper">

@@ -58,7 +58,7 @@ function LayoutPrincipal() {
           <div className="logo-box">
             <img src="/triabot.png" alt="TriaBot" className="logo-img" />
           </div>
-          {!isCollapsed && <h1 className="logo-text">TRIAGEM</h1>}
+          {!isCollapsed && <h1 className="logo-text">SISTEMA TRIAGEM</h1>}
         </div>
         
         <nav className="sidebar-nav">

@@ -4,11 +4,11 @@
    1. VARIÁVEIS GLOBAIS E RESET
 ========================================= */
 :root {
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
+  --primary: #594F7A;
+  --primary-hover: #797292;
   --primary-light: #e0e7ff;
-  --sidebar-bg: #18181b;
-  --sidebar-text: #a1a1aa;
+  --sidebar-bg: #46454a;
+  --sidebar-text: #ffffff;
   --sidebar-active: #ffffff;
   --bg-app: #f4f4f5; 
   --bg-card: #ffffff;
@@ -45,15 +45,14 @@ body {
    3. SIDEBAR RESPONSIVA (MENU LATERAL)
 ========================================= */
 .sidebar {
-  width: 260px;
+  width: 200px; 
   background: var(--sidebar-bg);
   border-right: 1px solid #27272a;
-  padding: 1.5rem 1rem;
+  padding: 1.5rem 0.75rem; 
   display: flex;
   flex-direction: column;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.3s ease;
   overflow: hidden;
-  position: relative;
 }
 
 .sidebar.collapsed {
@@ -63,39 +62,51 @@ body {
 /* Container da Logo */
 .sidebar-logo-container {
   display: flex;
+  flex-direction: column; /* Logo em cima, texto embaixo */
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  margin-bottom: 3rem;
-  padding-left: 8px;
-  height: 40px; /* Trava a altura para não empurrar os itens abaixo */
+  margin-bottom: 2rem; /* Mais espaço antes de começar o menu */
+  padding: 1rem 0;
+  transition: all 0.3s ease;
+}
+
+.sidebar.collapsed .logo-text {
+  display: none;
 }
 
 .sidebar.collapsed .sidebar-logo-container {
   padding-left: 0;
-  justify-content: center;
+  margin-bottom: 2rem;
 }
 
 /* Trava a imagem do robô */
 .logo-box {
-  width: 32px;
-  height: 32px;
-  min-width: 32px; /* Evita que o flexbox esmague o robô */
+  width: 75px; /* Aumentamos mais um pouco para ser o centro das atenções */
+  height: 75px;
+  min-width: 65px;
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Brilho sutil para destacar na cor da sidebar */
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+}
+
+.logo-text {
+  font-size: 0.85rem; /* Menor para não brigar com a logo */
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 3px; /* Espaçamento técnico entre letras */
+  text-transform: uppercase;
+  opacity: 0.9;
+  text-align: center;
+  /* Borda sutil de separação se quiser, mas o espaçamento já resolve */
 }
 
 .logo-img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-}
-
-.logo-text {
-  font-size: 1.1rem;
-  font-weight: 800;
-  color: #ffffff;
-  letter-spacing: 1px;
 }
 
 /* Itens de Navegação */
@@ -108,14 +119,20 @@ body {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 10px; 
+  padding: 10px 12px; 
   color: var(--sidebar-text);
   text-decoration: none;
-  border-radius: 12px;
+  border-radius: 10px;
+  font-size: 0.85rem; 
   font-weight: 500;
   transition: 0.2s;
-  white-space: nowrap; /* Impede a quebra de linha do texto ao fechar a barra */
+  white-space: nowrap;
+}
+
+.nav-item svg {
+  flex-shrink: 0; 
+  min-width: 20px;
 }
 
 .sidebar.collapsed .nav-item {
@@ -129,8 +146,9 @@ body {
 }
 
 .nav-item.active {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary);
+  background: rgba(89, 79, 122, 0.6); 
+  color: #ffffff; 
+  border-left: 3px solid var(--primary); 
 }
 
 .logout-btn {
@@ -142,7 +160,7 @@ body {
 }
 
 .logout-btn:hover {
-  background: rgba(248, 113, 113, 0.1) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
 }
 
 /* =========================================
