@@ -1,12 +1,13 @@
-import React, { useState } from 'react'; // Adicionado useState
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-// Adicionado Menu, ChevronLeft, ChevronRight e User
-import { LayoutDashboard, FileSearch, Power, User, Menu, ChevronLeft } from 'lucide-react'; 
+import { LayoutDashboard, FileSearch, Power, Menu, ChevronLeft, Database } from 'lucide-react'; 
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Dashboard from './pages/Dashboard';
 import Acompanhamento from './pages/Acompanhamento';
 import { Login } from './pages/Login'
 import { ResetPassword } from './pages/ResetPassword'
+import MalhaFiscal from './pages/MalhaFiscal';
+
 
 // --- RotaProtegida (Sem alterações aqui) ---
 const RotaProtegida = ({ children }: { children: React.ReactNode }) => {
@@ -69,6 +70,10 @@ function LayoutPrincipal() {
             <FileSearch size={20} />
             {!isCollapsed && <span>Auditoria OS</span>}
           </Link>
+          <Link to="/malha-fiscal" className={`nav-item ${location.pathname === '/malha-fiscal' ? 'active' : ''}`}>
+            <Database size={20} />
+            {!isCollapsed && <span>Auditoria Tomados</span>}
+          </Link>
         </nav>
         
         <button onClick={logout} className="nav-item logout-btn">
@@ -92,9 +97,7 @@ function LayoutPrincipal() {
 
           <div className="header-right">
             <div className="user-text-info">
-              {/* AQUI APLICAMOS A SAUDAÇÃO DINÂMICA */}
               <span className="welcome-text">{getGreeting()}</span>
-              {/* Pegamos apenas o primeiro nome para ficar mais limpo */}
               <span className="user-name">{user?.full_name?.split(' ')[0] || 'Usuário'}</span>
             </div>
 
@@ -109,6 +112,7 @@ function LayoutPrincipal() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/acompanhamento" element={<Acompanhamento />} />
+            <Route path="/malha-fiscal" element={<MalhaFiscal />} />
           </Routes>
         </main>
       </div>
@@ -116,7 +120,7 @@ function LayoutPrincipal() {
   )
 }
 
-// --- APP PRINCIPAL QUE ORGANIZA TUDO ---
+// --- APP PRINCIPAL ---
 export default function App() {
   return (
     <AuthProvider>

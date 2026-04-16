@@ -302,6 +302,7 @@ export default function Acompanhamento() {
               <th style={{ textAlign: 'center', width: '100px', cursor: 'pointer' }} onClick={() => requestSort('total_arquivos')}>
                 Arquivos {getSortIcon('total_arquivos')}
               </th>
+              <th style={{ textAlign: 'center', width: '120px' }}>Download</th>
               <th style={{ textAlign: 'center', width: '120px' }}>Triagem</th>
               <th style={{ textAlign: 'center', width: '140px', cursor: 'pointer' }} onClick={() => requestSort('status_tomados_geral')}>
                 Tomados {getSortIcon('status_tomados_geral')}
@@ -361,7 +362,13 @@ export default function Acompanhamento() {
                   <td style={{ textAlign: 'center', fontWeight: '800', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
                     {grupo.total_arquivos}
                   </td>
-                  
+
+                  <td style={{ textAlign: 'center' }}>
+                    <span className={`status-pill ${grupo.status_download === 'SUCESSO' ? 'sucesso' : 'erro'}`}>
+                      {grupo.status_download}
+                    </span>
+                  </td>
+                                    
                   <td style={{ textAlign: 'center' }}>
                     <span className={`status-pill ${grupo.status_triagem_geral === 'SUCESSO' ? 'sucesso' : 'erro'}`}>
                       {grupo.status_triagem_geral}

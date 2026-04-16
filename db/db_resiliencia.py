@@ -166,6 +166,23 @@ class ResilienciaDB:
                 )
             """)
 
+            # ==========================================
+            # 6. TABELA DE MALHA FISCAL (Conciliação AWS vs TriaBot)
+            # ==========================================
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS malha_fiscal_tomadas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cod_empresa TEXT,
+                    competencia TEXT,
+                    numero_nota TEXT,
+                    cnpj_prestador TEXT,
+                    origem TEXT, -- 'AWS', 'TRIABOT', 'AMBOS'
+                    valor_nota REAL,
+                    status_conciliacao TEXT, -- 'BATEU', 'FALTA_NO_TRIABOT', 'DIVERGENCIA_VALOR'
+                    data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
     # ==========================================
     # MÉTODOS DE USUÁRIOS E AUTENTICAÇÃO
     # ==========================================
