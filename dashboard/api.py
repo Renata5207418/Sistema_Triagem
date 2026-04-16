@@ -164,6 +164,7 @@ def get_auditoria_triagem():
             d.cod_emp as cod_empresa,
             d.nome_emp as nome_empresa,
             d.descricao as mensagem,
+            d.qtd_anexos_esperados,
             d.verificado,
             d.ultima_tentativa as data_os,
             d.auditado_por,    

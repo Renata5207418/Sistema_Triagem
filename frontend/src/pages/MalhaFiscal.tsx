@@ -80,12 +80,11 @@ export default function MalhaFiscal() {
   const [expandedCliente, setExpandedCliente] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
 
-  // ESTADO PARA O NOSSO "TOAST" (Notificação Bonita)
   const [toast, setToast] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
   const showToast = (text: string, type: 'success' | 'error') => {
     setToast({ text, type });
-    setTimeout(() => setToast(null), 3500); // Some depois de 3.5s
+    setTimeout(() => setToast(null), 3500); 
   };
 
   const carregarResumo = () => {
@@ -104,7 +103,6 @@ export default function MalhaFiscal() {
       carregarResumo();
       if (expandedCliente === codEmpresa) setExpandedCliente(null); 
     } catch (e: any) {
-      // Puxa a mensagem de erro que vem da API (Ex: "CNPJ não mapeado")
       const msgErro = e.response?.data?.detail || 'Erro ao sincronizar com AWS.';
       showToast(msgErro, 'error');
     }
@@ -158,8 +156,8 @@ export default function MalhaFiscal() {
             <tr>
               <th style={{ width: '48px' }}></th>
               <th>Cliente</th>
-              <th style={{ textAlign: 'center', width: '120px' }}>Total AWS</th>
-              <th style={{ textAlign: 'center', width: '120px' }}>Total TriaBot</th>
+              <th style={{ textAlign: 'center', width: '120px' }}>Total Portal</th>
+              <th style={{ textAlign: 'center', width: '120px' }}>Total Onvio</th>
               <th style={{ textAlign: 'center', width: '180px' }}>Status Geral</th>
               <th style={{ textAlign: 'center', width: '120px' }}>Ações</th>
             </tr>
@@ -179,7 +177,6 @@ export default function MalhaFiscal() {
                       </button>
                     </td>
                     
-                    {/* --- CORREÇÃO DO NOME DA EMPRESA AQUI --- */}
                     <td>
                       <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.85rem' }}>{cli.nome_empresa}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cód: {cli.cod_empresa}</div>

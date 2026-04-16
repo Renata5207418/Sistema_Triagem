@@ -153,6 +153,7 @@ export default function Acompanhamento() {
           cod_empresa: doc.cod_empresa,
           nome_empresa: doc.nome_empresa,
           status_download: doc.status_download,
+          qtd_anexos: doc.qtd_anexos_esperados,
           verificado: doc.verificado || 0,
           data_os: doc.data_os,
           mes_ano: dataMes, 
@@ -164,11 +165,13 @@ export default function Acompanhamento() {
           temTomadosProcessado: false
         }
       }
-      acc[doc.os].arquivos.push(doc)
-      if (doc.status_triagem !== 'SUCESSO') acc[doc.os].temErroTriagem = true;
-      if (doc.categoria_ia === 'nota_servico') {
-         if (doc.status_tomados === 'PENDENTE') acc[doc.os].temTomadosPendente = true;
-         if (doc.status_tomados === 'PROCESSADO') acc[doc.os].temTomadosProcessado = true;
+      if (doc.id) {
+        acc[doc.os].arquivos.push(doc)
+        if (doc.status_triagem !== 'SUCESSO') acc[doc.os].temErroTriagem = true;
+        if (doc.categoria_ia === 'nota_servico') {
+           if (doc.status_tomados === 'PENDENTE') acc[doc.os].temTomadosPendente = true;
+           if (doc.status_tomados === 'PROCESSADO') acc[doc.os].temTomadosProcessado = true;
+        }
       }
       return acc
     }, {})
@@ -180,7 +183,7 @@ export default function Acompanhamento() {
 
       return {
         ...grupo,
-        status_triagem_geral: grupo.temErroTriagem ? 'ERRO' : 'SUCESSO',
+        status_triagem_geral: grupo.qtd_anexos === 0 ? 'N/A' : (grupo.temErroTriagem ? 'ERRO' : 'SUCESSO'),
         status_tomados_geral: status_tomados,
         total_arquivos: grupo.arquivos.length
       }
@@ -359,20 +362,46 @@ export default function Acompanhamento() {
                     </div>
                   </td>
                   
-                  <td style={{ textAlign: 'center', fontWeight: '800', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  <td style={{ textAlign: 'center', fontWeight: '800', color: grupo.total_arquivos === 0 ? '#cbd5e1' : 'var(--text-muted)', fontSize: '0.9rem' }}>
                     {grupo.total_arquivos}
                   </td>
 
                   <td style={{ textAlign: 'center' }}>
-                    <span className={`status-pill ${grupo.status_download === 'SUCESSO' ? 'sucesso' : 'erro'}`}>
-                      {grupo.status_download}
-                    </span>
+                    {grupo.qtd_anexos === 0 ? (
+                      <span className="status-pill" style={{ 
+                        background: '#fff7ed', 
+                        color: '#c2410c', 
+                        border: '1px solid #fdba74', 
+                        fontSize: '0.55rem', 
+                        padding: '4px 8px', 
+                        whiteSpace: 'nowrap',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        fontWeight: 800,
+                        letterSpacing: '0.02em'
+                      }} title={grupo.mensagem}> 
+                        SÓ MENSAGEM
+                      </span>
+                    ) : (
+                      <span className={`status-pill ${grupo.status_download === 'SUCESSO' ? 'sucesso' : 'erro'}`}>
+                        {grupo.status_download}
+                      </span>
+                    )}
                   </td>
                                     
                   <td style={{ textAlign: 'center' }}>
-                    <span className={`status-pill ${grupo.status_triagem_geral === 'SUCESSO' ? 'sucesso' : 'erro'}`}>
-                      {grupo.status_triagem_geral}
-                    </span>
+                    {grupo.status_triagem_geral === 'N/A' ? (
+                      <span style={{ 
+                        display: 'inline-flex', padding: '4px 12px', borderRadius: '8px', 
+                        background: '#f1f5f9', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700
+                      }}>
+                        N/A
+                      </span>
+                    ) : (
+                      <span className={`status-pill ${grupo.status_triagem_geral === 'SUCESSO' ? 'sucesso' : 'erro'}`}>
+                        {grupo.status_triagem_geral}
+                      </span>
+                    )}
                   </td>
                   
                   <td style={{ textAlign: 'center' }}>
