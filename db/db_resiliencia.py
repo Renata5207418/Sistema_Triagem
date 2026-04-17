@@ -183,6 +183,34 @@ class ResilienciaDB:
                 )
             """)
 
+            # ==========================================
+            # 7. TABELAS DE FECHAMENTO CONTÁBIL (NOVO)
+            # ==========================================
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS controle_pastas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    apelido TEXT,
+                    competencia TEXT,
+                    pasta_liberada_em TEXT,
+                    documentos_json TEXT,
+                    updated_at TEXT
+                )
+            """)
+            
+            # ==========================================
+            # 8. TABELAS DE VALIDAÇÃO DA MALHA (NOVO)
+            # ==========================================
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS malha_fiscal_validacao (
+                    cod_empresa TEXT,
+                    competencia TEXT,
+                    verificado INTEGER DEFAULT 0,
+                    auditado_por TEXT,
+                    data_auditoria TEXT,
+                    PRIMARY KEY (cod_empresa, competencia)
+                )
+            """)
+
     # ==========================================
     # MÉTODOS DE USUÁRIOS E AUTENTICAÇÃO
     # ==========================================

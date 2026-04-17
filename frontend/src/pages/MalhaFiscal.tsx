@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { AlertTriangle, CheckCircle, Calendar, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Calendar, ChevronDown, ChevronUp, RefreshCw, Circle, UserCheck } from 'lucide-react';
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ptBR } from "date-fns/locale"; 
+import { useAuth } from '../context/AuthContext'; // <-- Importado o Auth
 
 registerLocale("pt-BR", ptBR);
 
-// Componente da Sub-tabela (Mantido igual)
+// Componente da Sub-tabela (Mantido intacto)
 const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, competencia: string }) => {
   const [notas, setNotas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,19 +43,13 @@ const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, compet
               }}>
                 <td style={{ fontWeight: 700, color: 'var(--text-main)' }}>#{nota.numero_nota}</td>
                 <td style={{ color: 'var(--text-muted)' }}>{nota.cnpj_prestador}</td>
-                
-                {/* VALOR AWS: Se a origem for TRIABOT exclusivo, não tem na AWS */}
                 <td style={{ textAlign: 'right', fontWeight: 600 }}>
                   {nota.origem === 'TRIABOT' ? '---' : nota.valor_nota.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </td>
-                
-                {/* VALOR TRIABOT: Se faltar no TriaBot, não exibe. Se for fantasma, mostra o valor. Se bater, mostra igual */}
                 <td style={{ textAlign: 'right', color: nota.status_conciliacao === 'DIVERGENCIA_VALOR' ? '#d97706' : 'inherit' }}>
                   {nota.status_conciliacao === 'FALTA_NO_TRIABOT' ? '---' : 
                    (nota.status_conciliacao === 'NOTA_FANTASMA_TRIABOT' || nota.status_conciliacao === 'BATEU') ? nota.valor_nota.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '---'}
                 </td>
-                
-                {/* STATUS: Adicionado o tratamento para NOTA FANTASMA */}
                 <td style={{ textAlign: 'center' }}>
                     {nota.status_conciliacao === 'FALTA_NO_TRIABOT' && <span style={{ color: '#ef4444', fontWeight: 700, fontSize: '0.7rem' }}>FALTA NO ONVIO</span>}
                     {nota.status_conciliacao === 'DIVERGENCIA_VALOR' && <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.7rem' }}>DIVERGENTE</span>}
@@ -71,6 +66,7 @@ const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, compet
 };
 
 export default function MalhaFiscal() {
+  const { user } = useAuth(); // <-- Puxando o usuário logado
   const [mesFiltro, setMesFiltro] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -79,8 +75,8 @@ export default function MalhaFiscal() {
   const [clientes, setClientes] = useState<any[]>([]);
   const [expandedCliente, setExpandedCliente] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
-
   const [toast, setToast] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+  const [activeTab, setActiveTab] = useState<'pendentes' | 'concluidas'>('pendentes');
 
   const showToast = (text: string, type: 'success' | 'error') => {
     setToast({ text, type });
@@ -109,10 +105,36 @@ export default function MalhaFiscal() {
     setSyncing(null);
   };
 
+  const clientesFiltrados = clientes.filter(cli => {
+    const isVerificado = Number(cli.verificado) === 1;
+    if (activeTab === 'pendentes') return !isVerificado;
+    return isVerificado;
+  });
+
+  // <-- NOVA FUNÇÃO DE VALIDAÇÃO -->
+  const toggleValidacao = async (codEmpresa: string, atualVerificado: number) => {
+    try {
+      const isVerificado = Number(atualVerificado) === 1;
+      
+      if (isVerificado) {
+        await axios.put(`http://127.0.0.1:8000/api/malha-fiscal/desmarcar/${codEmpresa}/${mesFiltro}`);
+      } else {
+        await axios.put(`http://127.0.0.1:8000/api/malha-fiscal/validar/${codEmpresa}/${mesFiltro}`, {
+          usuario: user?.full_name || 'Sistema'
+        });
+      }      
+      setTimeout(() => {
+        carregarResumo();
+      }, 400);
+
+    } catch (err) {
+      showToast("Erro ao alterar validação.", 'error');
+    }
+  };
+
   return (
     <div className="page-container" style={{ position: 'relative' }}>
       
-      {/* O TOAST RENDERIZADO AQUI */}
       {toast && (
         <div style={{
           position: 'fixed', bottom: '32px', right: '32px', zIndex: 9999,
@@ -150,11 +172,27 @@ export default function MalhaFiscal() {
         </div>
       </div>
 
+      <div className="tabs-container">
+        <button 
+          className={`tab-item ${activeTab === 'pendentes' ? 'active' : ''}`}
+          onClick={() => setActiveTab('pendentes')}
+        >
+          Pendentes de Validação ({clientes.filter(c => !c.verificado).length})
+        </button>
+        <button 
+          className={`tab-item ${activeTab === 'concluidas' ? 'active' : ''}`}
+          onClick={() => setActiveTab('concluidas')}
+        >
+          Validadas / Concluídas ({clientes.filter(c => c.verificado).length})
+        </button>
+      </div>
+
       <div className="table-card">
         <table className="modern-table">
           <thead>
             <tr>
               <th style={{ width: '48px' }}></th>
+              <th style={{ width: '80px', textAlign: 'center' }}>Validar</th>
               <th>Cliente</th>
               <th style={{ textAlign: 'center', width: '120px' }}>Total Portal</th>
               <th style={{ textAlign: 'center', width: '120px' }}>Total Onvio</th>
@@ -163,9 +201,9 @@ export default function MalhaFiscal() {
             </tr>
           </thead>
           <tbody>
-            {clientes.length === 0 ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Nenhuma auditoria encontrada nesta competência.</td></tr>
-            ) : clientes.map((cli) => {
+            {clientesFiltrados.length === 0 ? (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Nenhuma auditoria encontrada nesta aba.</td></tr>
+            ) : clientesFiltrados.map((cli) => { 
               const temErro = cli.qtd_faltantes > 0 || cli.qtd_divergentes > 0;
               
               return (
@@ -177,9 +215,28 @@ export default function MalhaFiscal() {
                       </button>
                     </td>
                     
+                    {/* COLUNA DE VALIDAÇÃO (Nova) */}
+                    <td style={{ textAlign: 'center' }}>
+                      <button 
+                        onClick={() => toggleValidacao(cli.cod_empresa, cli.verificado)}
+                        className={`check-btn ${cli.verificado ? 'checked' : ''}`}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}
+                      >
+                        {cli.verificado ? <CheckCircle size={26} fill="#dcfce7" /> : <Circle size={26} />}
+                      </button>
+                    </td>
+
                     <td>
                       <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.85rem' }}>{cli.nome_empresa}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cód: {cli.cod_empresa}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span>Cód: {cli.cod_empresa}</span>
+                        {/* NOME DO AUDITOR AQUI */}
+                        {cli.verificado === 1 && cli.auditado_por && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: 600 }}>
+                            <UserCheck size={12} /> Validado por {cli.auditado_por.split(' ')[0]}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     
                     <td style={{ textAlign: 'center', fontWeight: '800', color: 'var(--text-muted)' }}>{cli.total_aws}</td>
@@ -209,7 +266,7 @@ export default function MalhaFiscal() {
 
                   {expandedCliente === cli.cod_empresa && (
                     <tr>
-                      <td colSpan={6} style={{ padding: 0 }}>
+                      <td colSpan={7} style={{ padding: 0 }}>
                         <DetalhesNotas codEmpresa={cli.cod_empresa} competencia={mesFiltro} />
                       </td>
                     </tr>
