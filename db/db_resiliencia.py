@@ -184,7 +184,7 @@ class ResilienciaDB:
             """)
 
             # ==========================================
-            # 7. TABELAS DE FECHAMENTO CONTÁBIL (NOVO)
+            # 7. TABELAS DE FECHAMENTO CONTÁBIL 
             # ==========================================
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS controle_pastas (
@@ -196,9 +196,23 @@ class ResilienciaDB:
                     updated_at TEXT
                 )
             """)
+
+            # ==========================================
+            # 8. CONFIGURAÇÃO DE EMPRESAS 
+            # ==========================================
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS empresas_config (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    apelido TEXT UNIQUE,
+                    tipo TEXT DEFAULT 'VITALICIA', -- 'VITALICIA' ou 'MENSAL'
+                    ativa INTEGER DEFAULT 1,       -- 1 para Ativa, 0 para Inativa
+                    competencia_unica TEXT,        -- Se for MENSAL, guarda qual mês (Ex: 2026-04)
+                    criada_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             
             # ==========================================
-            # 8. TABELAS DE VALIDAÇÃO DA MALHA (NOVO)
+            # 9. TABELAS DE VALIDAÇÃO DA MALHA 
             # ==========================================
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS malha_fiscal_validacao (

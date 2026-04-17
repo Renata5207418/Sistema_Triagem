@@ -9,7 +9,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -159,6 +159,100 @@ def get_resumo_dashboard():
         return resumo
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fechamentos")
+def get_fechamentos():
+    """Busca fechamentos manuais e INJETA dinamicamente as OS automáticas da Malha."""
+    # 1. Busca os fechamentos manuais salvos
+    pastas_db = executar_query_dict("SELECT * FROM controle_pastas")
+    pastas_dict = {(p['apelido'], p['competencia']): dict(p) for p in pastas_db}
+    
+    # 2. Busca TODAS as OS (Downloads) cruzando com a tabela de configuração de empresas
+    query_os = """
+        SELECT d.id_ticket, d.cod_emp, d.ultima_tentativa, d.verificado, d.data_auditoria, e.apelido
+        FROM downloads d
+        JOIN empresas_config e ON 
+            e.apelido LIKE TRIM(CAST(d.cod_emp AS TEXT)) || ' - %' 
+            OR e.apelido = TRIM(CAST(d.cod_emp AS TEXT))
+    """
+    try:
+        oss = executar_query_dict(query_os)
+    except Exception:
+        oss = [] 
+        
+    # 3. Mescla as automações dentro das pastas
+    for os_item in oss:
+        if not os_item['ultima_tentativa']: continue
+        comp = os_item['ultima_tentativa'][:7] 
+        apelido = os_item['apelido']
+        key = (apelido, comp)
+        
+        if key not in pastas_dict:
+            pastas_dict[key] = {
+                "apelido": apelido,
+                "competencia": comp,
+                "pasta_liberada_em": None,
+                "documentos_json": "[]"
+            }
+        
+        docs = json.loads(pastas_dict[key]['documentos_json'])
+        id_auto = f"AUTO-{os_item['id_ticket']}"
+        
+        # Injeta a OS automática no JSON caso não exista
+        if not any(d.get('id') == id_auto for d in docs):
+            docs.append({
+                "id": id_auto,
+                "nome": f"OS #{os_item['id_ticket']} (Portal Domínio)",
+                "recebido": os_item['ultima_tentativa'][:10],
+                "liberado_em": os_item['data_auditoria'] if os_item['verificado'] else None,
+                "isAuto": True # FLAG DE PROTEÇÃO
+            })
+        pastas_dict[key]['documentos_json'] = json.dumps(docs)
+        
+    return list(pastas_dict.values())
+
+
+@app.post("/api/fechamentos")
+def save_fechamento(payload: dict):
+    """Salva os dados manuais e faz a SINCRONIZAÇÃO REVERSA com a Malha Fiscal."""
+    docs = json.loads(payload.get("documentos_json", "[]"))
+    
+    # 1. PROTEÇÃO: Salva APENAS o que for manual (ignorando as automáticas da Malha)
+    docs_manuais = [d for d in docs if not d.get("isAuto")]
+    docs_json = json.dumps(docs_manuais)
+    
+    apelido = payload["apelido"]
+    competencia = payload["competencia"]
+    liberado_em = payload.get("pasta_liberada_em")
+    
+    # 2. SALVA NA PRIORIDADE CONTÁBIL
+    row = executar_query_dict("SELECT id FROM controle_pastas WHERE apelido = ? AND competencia = ?", (apelido, competencia))
+    if row:
+        executar_update("UPDATE controle_pastas SET pasta_liberada_em = ?, documentos_json = ?, updated_at = datetime('now') WHERE id = ?", (liberado_em, docs_json, row[0]['id']))
+    else:
+        executar_update("INSERT INTO controle_pastas (apelido, competencia, pasta_liberada_em, documentos_json, updated_at) VALUES (?, ?, ?, ?, datetime('now'))", (apelido, competencia, liberado_em, docs_json))
+        
+    # ==========================================
+    # 3. INTEGRAÇÃO REVERSA: PRIORIDADE -> MALHA FISCAL
+    # ==========================================
+    cod_empresa = apelido.split('-')[0].strip() # Isola o código (ex: "743 - TECNOFIT" -> "743")
+    
+    if liberado_em is None:
+        # Se o usuário REABRIU o mês na Prioridade -> Desmarca o Check na Malha Fiscal
+        executar_update("UPDATE malha_fiscal_validacao SET verificado = 0 WHERE TRIM(CAST(cod_empresa AS TEXT)) = ? AND competencia = ?", (cod_empresa, competencia))
+    else:
+        # Se o usuário CONCLUIU o mês na Prioridade -> Dá o Check verde na Malha Fiscal
+        data_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        query_malha = """
+            INSERT INTO malha_fiscal_validacao (cod_empresa, competencia, verificado, auditado_por, data_auditoria)
+            VALUES (?, ?, 1, 'Via Fechamento', ?)
+            ON CONFLICT(cod_empresa, competencia) DO UPDATE SET 
+            verificado = 1, auditado_por = excluded.auditado_por, data_auditoria = excluded.data_auditoria
+        """
+        executar_update(query_malha, (cod_empresa, competencia, data_atual))
+
+    return {"mensagem": "Pasta atualizada e sincronizada com a Malha!"}
 
 
 # --- INÍCIO DA AUTO-CURA DO BANCO ---
@@ -397,75 +491,118 @@ def sincronizar_malha_cliente(cod_empresa: str, competencia: str):
 class MalhaValidacaoRequest(BaseModel):
     usuario: str
 
+
 @app.put("/api/malha-fiscal/validar/{cod_empresa}/{competencia}")
 def validar_malha(cod_empresa: str, competencia: str, request: MalhaValidacaoRequest):
     data_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    query = """
+    cod_str = str(cod_empresa).strip()
+    
+    # 1. VALIDA NA MALHA FISCAL (Ação original)
+    query_malha = """
         INSERT INTO malha_fiscal_validacao (cod_empresa, competencia, verificado, auditado_por, data_auditoria)
         VALUES (?, ?, 1, ?, ?)
         ON CONFLICT(cod_empresa, competencia) DO UPDATE SET 
         verificado = 1, auditado_por = excluded.auditado_por, data_auditoria = excluded.data_auditoria
     """
-    executar_update(query, (str(cod_empresa).strip(), competencia, request.usuario, data_atual))
-    return {"mensagem": "Malha validada!"}
+    executar_update(query_malha, (cod_str, competencia, request.usuario, data_atual))
+    
+    # 2. INTEGRAÇÃO AUTOMÁTICA: PRIORIDADE CONTÁBIL
+    # Busca a carteira de empresas e encontra o "apelido" que começa com esse código
+    todas_empresas = executar_query_dict("SELECT apelido FROM empresas_config")
+    apelido_oficial = None
+    
+    for emp in todas_empresas:
+        apelido_banco = emp['apelido']
+        cod_banco = apelido_banco.split('-')[0].strip() # Pega só o que vem antes do traço
+        if cod_banco == cod_str:
+            apelido_oficial = apelido_banco
+            break
+            
+    # Se encontrou a empresa na carteira, fecha o mês dela automaticamente!
+    if apelido_oficial:
+        row = executar_query_dict("SELECT id FROM controle_pastas WHERE apelido = ? AND competencia = ?", (apelido_oficial, competencia))
+        if row:
+            executar_update("UPDATE controle_pastas SET pasta_liberada_em = ?, updated_at = ? WHERE id = ?", (data_atual, data_atual, row[0]['id']))
+        else:
+            executar_update("INSERT INTO controle_pastas (apelido, competencia, pasta_liberada_em, documentos_json, updated_at) VALUES (?, ?, ?, '[]', ?)", (apelido_oficial, competencia, data_atual, data_atual))
+
+    return {"mensagem": "Malha validada e Prioridade Contábil atualizada!"}
+
 
 @app.put("/api/malha-fiscal/desmarcar/{cod_empresa}/{competencia}")
 def desmarcar_malha(cod_empresa: str, competencia: str):
+    cod_str = str(cod_empresa).strip()
+    
+    # 1. DESMARCA NA MALHA FISCAL
     query = "UPDATE malha_fiscal_validacao SET verificado = 0 WHERE TRIM(CAST(cod_empresa AS TEXT)) = ? AND competencia = ?"
-    executar_update(query, (str(cod_empresa).strip(), competencia))
-    return {"mensagem": "Validação removida."}
+    executar_update(query, (cod_str, competencia))
+    
+    # 2. INTEGRAÇÃO AUTOMÁTICA: REABRE NA PRIORIDADE CONTÁBIL
+    todas_empresas = executar_query_dict("SELECT apelido FROM empresas_config")
+    apelido_oficial = None
+    
+    for emp in todas_empresas:
+        cod_banco = emp['apelido'].split('-')[0].strip()
+        if cod_banco == cod_str:
+            apelido_oficial = emp['apelido']
+            break
+            
+    if apelido_oficial:
+        executar_update("UPDATE controle_pastas SET pasta_liberada_em = NULL, updated_at = datetime('now') WHERE apelido = ? AND competencia = ?", (apelido_oficial, competencia))
 
+    return {"mensagem": "Validação removida em ambos os painéis."}
 
 # ==========================================
 # ROTAS DE PRIORIDADE CONTÁBIL (FECHAMENTOS)
 # ==========================================
-PRIORIDADES_FILE = RAIZ_PROJETO / "prioridades.json"
+class EmpresaConfigRequest(BaseModel):
+    apelido: str
+    tipo: str 
+    competencia: Optional[str] = None
+
 
 @app.get("/api/prioridades")
-def get_prioridades():
-    if not PRIORIDADES_FILE.exists():
-        return []
-    try:
-        return json.loads(PRIORIDADES_FILE.read_text(encoding="utf-8"))
-    except:
-        return []
+def get_prioridades(month: str = Query(None)):
+    """Busca empresas ativas: Vitalícias + Mensais daquela competência específica."""
+    query = """
+        SELECT apelido, tipo, ativa FROM empresas_config 
+        WHERE ativa = 1 
+        AND (tipo = 'VITALICIA' OR (tipo = 'MENSAL' AND competencia_unica = ?))
+    """
+    return executar_query_dict(query, (month,))
 
 
-@app.post("/api/prioridades")
-def save_prioridades(payload: list[str]):
-    PRIORIDADES_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    return {"mensagem": "Prioridades atualizadas"}
+@app.get("/api/prioridades/config")
+def get_todas_configs():
+    """Retorna todas as empresas cadastradas para o modal de gerenciamento."""
+    return executar_query_dict("SELECT * FROM empresas_config ORDER BY ativa DESC, apelido ASC")
 
 
-@app.get("/api/fechamentos")
-def get_fechamentos():
-    return executar_query_dict("SELECT * FROM controle_pastas")
+@app.post("/api/prioridades/config")
+def save_empresa_config(req: EmpresaConfigRequest):
+    query = """
+        INSERT INTO empresas_config (apelido, tipo, competencia_unica, ativa)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(apelido) DO UPDATE SET 
+            tipo = excluded.tipo,
+            competencia_unica = excluded.competencia_unica,
+            ativa = 1
+    """
+    executar_update(query, (req.apelido.upper(), req.tipo, req.competencia))
+    return {"mensagem": "Configuração salva"}
 
 
-@app.post("/api/fechamentos")
-def save_fechamento(payload: dict):
-    # Verifica se já existe para fazer UPDATE ou INSERT
-    row = executar_query_dict(
-        "SELECT id FROM controle_pastas WHERE apelido = ? AND competencia = ?", 
-        (payload["apelido"], payload["competencia"])
-    )
-    
-    docs_json = payload.get("documentos_json", "[]")
-    if isinstance(docs_json, list):
-        docs_json = json.dumps(docs_json)
+@app.put("/api/prioridades/config/{apelido}/toggle")
+def toggle_empresa(apelido: str):
+    """Inativa ou Ativa uma empresa."""
+    executar_update("UPDATE empresas_config SET ativa = 1 - ativa WHERE apelido = ?", (apelido,))
+    return {"mensagem": "Status alterado"}
 
-    if row:
-        executar_update('''
-            UPDATE controle_pastas
-            SET pasta_liberada_em = ?, documentos_json = ?, updated_at = datetime('now')
-            WHERE id = ?
-        ''', (payload.get("pasta_liberada_em"), docs_json, row[0]['id']))
-    else:
-        executar_update('''
-            INSERT INTO controle_pastas (apelido, competencia, pasta_liberada_em, documentos_json, updated_at)
-            VALUES (?, ?, ?, ?, datetime('now'))
-        ''', (payload["apelido"], payload["competencia"], payload.get("pasta_liberada_em"), docs_json))
-        
-    return {"mensagem": "Pasta atualizada"}
 
-    
+@app.delete("/api/prioridades/config/{apelido}")
+def delete_empresa_config(apelido: str):
+    """Remove permanentemente a empresa da lista de prioridades."""
+    executar_update("DELETE FROM empresas_config WHERE apelido = ?", (apelido,))
+    return {"mensagem": "Empresa removida"}
+
+
