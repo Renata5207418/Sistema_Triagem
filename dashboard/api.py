@@ -1,8 +1,11 @@
 import os
+import re
 import io
 import sys
+import json
 import sqlite3
 import zipfile
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from fastapi.responses import StreamingResponse
@@ -69,34 +72,60 @@ def executar_update(query, params=()):
 # ==========================================
 @app.get("/api/download/tomados/{os_id}")
 def baixar_tomados_zip(os_id: int):
-    """Gera um ZIP contendo apenas os TXTs convertidos para CSV e envia direto, sem salvar no disco."""
+    """Gera ZIP apenas com os CSVs de importação (Geral e por Tomador)."""
     
-    query = "SELECT caminho_pasta FROM downloads WHERE id_ticket = ?"
-    resultado = executar_query_dict(query, (os_id,))
+    # 1. Busca os registros processados no banco
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        registros = [dict(r) for r in conn.execute("SELECT * FROM resultados_tomados WHERE id_ticket = ?", (os_id,)).fetchall()]
+
+    if not registros:
+        raise HTTPException(status_code=404, detail="Nenhum dado encontrado.")
+
+    # 2. Prepara o DataFrame para garantir as 28 colunas da Domínio
+    df = pd.DataFrame(registros)
+    colunas_dominio = [
+        'cpf_cnpj', 'razao_social', 'uf', 'municipio', 'endereco', 'numero_documento', 
+        'serie', 'data_emissao', 'situacao', 'acumulador', 'cfop', 'valor_servicos', 
+        'valor_descontos', 'valor_contabil', 'base_calculo', 'alq_iss', 'valor_iss_normal', 
+        'valor_iss_retido', 'valor_irrf', 'valor_pis', 'valor_cofins', 'valor_csll', 
+        'valor_crf', 'valor_inss', 'cod_item', 'quantidade', 'vlr_unitario', 'tomador'
+    ]
     
-    if not resultado or not resultado[0]['caminho_pasta']:
-        raise HTTPException(status_code=404, detail="Pasta da OS não encontrada.")
+    for col in colunas_dominio:
+        if col not in df.columns: df[col] = ''
     
-    caminho_raiz = Path(resultado[0]['caminho_pasta'])
-    pasta_tomadas = caminho_raiz / "NOTAS_DE_SERVICO" / "TOMADAS"
+    df = df[colunas_dominio]
+    df['situacao'] = '0' # Padrão regular
     
-    if not pasta_tomadas.exists():
-        raise HTTPException(status_code=404, detail="Pasta TOMADAS não encontrada.")
+    # 3. Formatação técnica para Excel/Domínio (UTF-8 com assinatura e ponto-e-vírgula)
+    df_csv = df.copy()
+    df_csv['cpf_cnpj'] = df_csv['cpf_cnpj'].apply(lambda x: f'="{x}"') # Evita notação científica
+    df_csv['tomador'] = df_csv['tomador'].apply(lambda x: f'="{x}"')
+    
+    colunas_valores = ['valor_servicos', 'valor_contabil', 'base_calculo', 'valor_irrf', 'valor_pis', 'valor_cofins', 'valor_csll', 'valor_crf', 'valor_inss']
+    for col in colunas_valores:
+        df_csv[col] = df_csv[col].apply(lambda x: str(x).replace('.', ',')) # Padrão decimal BR
+
+    header_pt = ['CPF/CNPJ', 'Razão Social', 'UF', 'Município', 'Endereço', 'Número Documento', 'Série', 'Data', 'Situação', 'Acumulador', 'CFOP', 'Valor Serviços', 'Valor Descontos', 'Valor Contábil', 'Base de Calculo', 'Alíquota ISS', 'Valor ISS Normal', 'Valor ISS Retido', 'Valor IRRF', 'Valor PIS', 'Valor COFINS', 'Valor CSLL', 'Valo CRF', 'Valor INSS', 'Código do Item', 'Quantidade', 'Valor Unitário', 'Tomador']
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for arquivo in pasta_tomadas.iterdir():
-            if arquivo.is_file() and arquivo.suffix.lower() == '.txt':
-                nome_excel = arquivo.stem + ".csv"
-                zipf.write(arquivo, arcname=nome_excel)
+        
+        # --- GERAL.csv (Contém todas as notas da OS) ---
+        csv_geral = df_csv.to_csv(index=False, sep=';', header=header_pt, encoding='utf-8-sig')
+        zipf.writestr("GERAL_IMPORTACAO.csv", csv_geral)
+
+        # --- CSVs Individuais (Um arquivo para cada tomador diferente na OS) ---
+        for tomador, group in df_csv.groupby('tomador'):
+            cnpj_clean = re.sub(r'[^0-9]', '', tomador)
+            csv_indiv = group.to_csv(index=False, sep=';', header=header_pt, encoding='utf-8-sig')
+            zipf.writestr(f"TOMADOS_CLI_{cnpj_clean}.csv", csv_indiv)
 
     zip_buffer.seek(0)
+    return StreamingResponse(zip_buffer, media_type="application/zip", 
+                             headers={"Content-Disposition": f"attachment; filename=OS{os_id}_Planilhas_Domínio.zip"})
 
-    return StreamingResponse(
-        zip_buffer,
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename=OS{os_id}_Planilhas_Dominio.zip"}
-    )
 
 @app.get("/api/resumo")
 def get_resumo_dashboard():
@@ -386,3 +415,76 @@ def get_detalhes_malha(cod_empresa: str, competencia: str):
     query = "SELECT * FROM malha_fiscal_tomadas WHERE cod_empresa = ? AND competencia = ? ORDER BY status_conciliacao DESC"
     return executar_query_dict(query, (cod_empresa, competencia))
 
+# ==========================================
+# ROTAS DE PRIORIDADE CONTÁBIL (FECHAMENTOS)
+# ==========================================
+
+PRIORIDADES_FILE = RAIZ_PROJETO / "prioridades.json"
+
+def garantir_tabelas_fechamento():
+    """Garante que a tabela de controle_pastas exista no novo banco."""
+    query = """
+        CREATE TABLE IF NOT EXISTS controle_pastas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            apelido TEXT,
+            competencia TEXT,
+            pasta_liberada_em TEXT,
+            documentos_json TEXT,
+            updated_at TEXT
+        )
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(query)
+
+# Roda ao iniciar a API
+garantir_tabelas_fechamento()
+
+
+@app.get("/api/prioridades")
+def get_prioridades():
+    if not PRIORIDADES_FILE.exists():
+        return []
+    try:
+        return json.loads(PRIORIDADES_FILE.read_text(encoding="utf-8"))
+    except:
+        return []
+
+
+@app.post("/api/prioridades")
+def save_prioridades(payload: list[str]):
+    PRIORIDADES_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return {"mensagem": "Prioridades atualizadas"}
+
+
+@app.get("/api/fechamentos")
+def get_fechamentos():
+    return executar_query_dict("SELECT * FROM controle_pastas")
+
+
+@app.post("/api/fechamentos")
+def save_fechamento(payload: dict):
+    # Verifica se já existe para fazer UPDATE ou INSERT
+    row = executar_query_dict(
+        "SELECT id FROM controle_pastas WHERE apelido = ? AND competencia = ?", 
+        (payload["apelido"], payload["competencia"])
+    )
+    
+    docs_json = payload.get("documentos_json", "[]")
+    if isinstance(docs_json, list):
+        docs_json = json.dumps(docs_json)
+
+    if row:
+        executar_update('''
+            UPDATE controle_pastas
+            SET pasta_liberada_em = ?, documentos_json = ?, updated_at = datetime('now')
+            WHERE id = ?
+        ''', (payload.get("pasta_liberada_em"), docs_json, row[0]['id']))
+    else:
+        executar_update('''
+            INSERT INTO controle_pastas (apelido, competencia, pasta_liberada_em, documentos_json, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+        ''', (payload["apelido"], payload["competencia"], payload.get("pasta_liberada_em"), docs_json))
+        
+    return {"mensagem": "Pasta atualizada"}
+
+    

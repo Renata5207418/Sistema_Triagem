@@ -132,7 +132,7 @@ export default function MalhaFiscal() {
       <div className="page-header-row" style={{ alignItems: 'flex-end' }}>
         <div>
           <h1 className="page-title">Auditoria de Tomados</h1>
-          <p className="page-subtitle">Acompanhe as divergências entre o prtal e os envios do onvio.</p>
+          <p className="page-subtitle">Acompanhe as divergências entre o portal e os envios do onvio.</p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', background: 'white', padding: '0 12px', borderRadius: '10px', border: '1px solid var(--border)', height: '42px' }}>

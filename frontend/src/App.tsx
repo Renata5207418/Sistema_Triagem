@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, FileSearch, Power, Menu, ChevronLeft, Database } from 'lucide-react'; 
+import { LayoutDashboard, FileSearch, Power, Menu, ChevronLeft, Database, ClipboardList } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Dashboard from './pages/Dashboard';
 import Acompanhamento from './pages/Acompanhamento';
 import { Login } from './pages/Login'
 import { ResetPassword } from './pages/ResetPassword'
 import MalhaFiscal from './pages/MalhaFiscal';
+import PrioridadeContabil from './pages/PrioridadeContabil';
 
 
 // --- RotaProtegida (Sem alterações aqui) ---
@@ -38,6 +39,8 @@ function LayoutPrincipal() {
   const getPageTitle = () => {
     if (location.pathname === '/') return 'Dashboard';
     if (location.pathname === '/acompanhamento') return 'Auditoria de OS';
+    if (location.pathname === '/malha-fiscal') return 'Auditoria Tomados';
+    if (location.pathname === '/prioridade-contabil') return 'Prioridade Contábil';
     return 'Sistema';
   };
 
@@ -73,6 +76,10 @@ function LayoutPrincipal() {
           <Link to="/malha-fiscal" className={`nav-item ${location.pathname === '/malha-fiscal' ? 'active' : ''}`}>
             <Database size={20} />
             {!isCollapsed && <span>Auditoria Tomados</span>}
+          </Link>
+          <Link to="/prioridade-contabil" className={`nav-item ${location.pathname === '/prioridade-contabil' ? 'active' : ''}`}>
+            <ClipboardList size={20} />
+            {!isCollapsed && <span>Prioridade Contábil</span>}
           </Link>
         </nav>
         
@@ -113,6 +120,7 @@ function LayoutPrincipal() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/acompanhamento" element={<Acompanhamento />} />
             <Route path="/malha-fiscal" element={<MalhaFiscal />} />
+            <Route path="/prioridade-contabil" element={<PrioridadeContabil />} />
           </Routes>
         </main>
       </div>
