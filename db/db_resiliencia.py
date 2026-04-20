@@ -203,10 +203,11 @@ class ResilienciaDB:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS empresas_config (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    codigo TEXT, -- Adicione esta linha
                     apelido TEXT UNIQUE,
-                    tipo TEXT DEFAULT 'VITALICIA', -- 'VITALICIA' ou 'MENSAL'
-                    ativa INTEGER DEFAULT 1,       -- 1 para Ativa, 0 para Inativa
-                    competencia_unica TEXT,        -- Se for MENSAL, guarda qual mês (Ex: 2026-04)
+                    tipo TEXT DEFAULT 'VITALICIA',
+                    ativa INTEGER DEFAULT 1,
+                    competencia_unica TEXT,
                     criada_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)

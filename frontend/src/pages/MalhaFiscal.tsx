@@ -4,11 +4,11 @@ import { AlertTriangle, CheckCircle, Calendar, ChevronDown, ChevronUp, RefreshCw
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ptBR } from "date-fns/locale"; 
-import { useAuth } from '../context/AuthContext'; // <-- Importado o Auth
+import { useAuth } from '../context/AuthContext';
 
 registerLocale("pt-BR", ptBR);
 
-// Componente da Sub-tabela (Mantido intacto)
+// Componente da Sub-tabela (AGORA COM A COLUNA DE OS)
 const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, competencia: string }) => {
   const [notas, setNotas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +31,7 @@ const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, compet
               <th style={{ textAlign: 'left' }}>Prestador (CNPJ)</th>
               <th style={{ textAlign: 'right', width: '120px' }}>Valor Portal</th>
               <th style={{ textAlign: 'right', width: '120px' }}>Valor Onvio</th>
+              <th style={{ textAlign: 'center', width: '100px' }}>OS Onvio</th> {/* NOVA COLUNA AQUI */}
               <th style={{ textAlign: 'center', width: '150px' }}>Status</th>
             </tr>
           </thead>
@@ -50,6 +51,12 @@ const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, compet
                   {nota.status_conciliacao === 'FALTA_NO_TRIABOT' ? '---' : 
                    (nota.status_conciliacao === 'NOTA_FANTASMA_TRIABOT' || nota.status_conciliacao === 'BATEU') ? nota.valor_nota.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '---'}
                 </td>
+                
+                {/* DADO DA OS AQUI */}
+                <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--primary)' }}>
+                  {nota.os_onvio ? `#${nota.os_onvio}` : '---'}
+                </td>
+
                 <td style={{ textAlign: 'center' }}>
                     {nota.status_conciliacao === 'FALTA_NO_TRIABOT' && <span style={{ color: '#ef4444', fontWeight: 700, fontSize: '0.7rem' }}>FALTA NO ONVIO</span>}
                     {nota.status_conciliacao === 'DIVERGENCIA_VALOR' && <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.7rem' }}>DIVERGENTE</span>}
@@ -66,7 +73,7 @@ const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, compet
 };
 
 export default function MalhaFiscal() {
-  const { user } = useAuth(); // <-- Puxando o usuário logado
+  const { user } = useAuth(); 
   const [mesFiltro, setMesFiltro] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -111,7 +118,6 @@ export default function MalhaFiscal() {
     return isVerificado;
   });
 
-  // <-- NOVA FUNÇÃO DE VALIDAÇÃO -->
   const toggleValidacao = async (codEmpresa: string, atualVerificado: number) => {
     try {
       const isVerificado = Number(atualVerificado) === 1;
@@ -215,7 +221,6 @@ export default function MalhaFiscal() {
                       </button>
                     </td>
                     
-                    {/* COLUNA DE VALIDAÇÃO (Nova) */}
                     <td style={{ textAlign: 'center' }}>
                       <button 
                         onClick={() => toggleValidacao(cli.cod_empresa, cli.verificado)}
@@ -230,7 +235,6 @@ export default function MalhaFiscal() {
                       <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.85rem' }}>{cli.nome_empresa}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <span>Cód: {cli.cod_empresa}</span>
-                        {/* NOME DO AUDITOR AQUI */}
                         {cli.verificado === 1 && cli.auditado_por && (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: 600 }}>
                             <UserCheck size={12} /> Validado por {cli.auditado_por.split(' ')[0]}

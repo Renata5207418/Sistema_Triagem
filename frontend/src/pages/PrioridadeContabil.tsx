@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Settings, ChevronDown, ChevronUp, Trash2, CheckCircle, Circle, Plus, FolderOpen, Calendar, Power, PowerOff, X, Search, ChevronLeft, ChevronRight, Pencil, Check } from 'lucide-react';
+import { Settings, ChevronDown, ChevronUp, Trash2, CheckCircle, Circle, Plus, FolderOpen, Calendar, Power, PowerOff, X, Search, ChevronLeft, ChevronRight, Pencil, Check, Bot } from 'lucide-react';
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ptBR } from "date-fns/locale";
@@ -13,7 +13,7 @@ interface IDocumento {
   nome: string;
   recebido: string;
   liberado_em: string | null;
-  isAuto?: boolean; // NOVO: Flag para detectar itens automáticos do Robô
+  isAuto?: boolean; 
 }
 
 interface IPasta {
@@ -25,6 +25,7 @@ interface IPasta {
 }
 
 interface IEmpresaConfig {
+  codigo?: string; 
   apelido: string;
   tipo: 'VITALICIA' | 'MENSAL';
   ativa: number;
@@ -42,30 +43,26 @@ const formatDateTime = () => {
   return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')} ${String(hoje.getHours()).padStart(2, '0')}:${String(hoje.getMinutes()).padStart(2, '0')}:${String(hoje.getSeconds()).padStart(2, '0')}`;
 };
 
-export const extrairCodigoEmpresa = (apelido: string) => {
-  if (!apelido) return "";
-  const partes = apelido.split('-');
-  return partes.length > 1 ? partes[0].trim() : "";
-};
 
 /* --- Componentes de Tabela -------------------------------- */
 function DocumentoRow({ doc, onChange, onRemove }: { doc: IDocumento, onChange: (d: IDocumento) => void, onRemove: () => void }) {
   
-  // RENDERIZAÇÃO BLOQUEADA PARA OS ITENS AUTOMÁTICOS DA MALHA
   if (doc.isAuto) {
     return (
       <tr className="sub-table-row" style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
         <td style={{ padding: '8px 16px', fontWeight: 700, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          🤖 {doc.nome}
+          <Bot size={18} style={{ color: '#635294' }} /> {doc.nome}
         </td>
         <td style={{ padding: '8px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>
           {doc.recebido.split('-').reverse().join('/')}
         </td>
-        <td style={{ padding: '8px 16px', textAlign: 'center' }}>
+        <td style={{ padding: '5px 16px', textAlign: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
             {doc.liberado_em ? <CheckCircle size={22} fill="#dcfce7" color="#16a34a" /> : <Circle size={22} color="#cbd5e1" />}
-            <span className={`status-pill ${doc.liberado_em ? 'sucesso' : 'erro'}`} style={{ background: doc.liberado_em ? '' : '#fef9c3', color: doc.liberado_em ? '' : '#a16207' }}>
-              {doc.liberado_em ? 'Validado na Malha' : 'Pendente na Malha'}
+            <span className={`status-pill ${doc.liberado_em ? 'sucesso' : 'erro'}`} style={{ background: doc.liberado_em ? '' : '#fef9c3', color: doc.liberado_em ? '' : '#a16207', fontSize:'0.63rem'
+
+             }}>
+              {doc.liberado_em ? 'Validado na Malha' : 'Pendente na Auditoria'}
             </span>
           </div>
         </td>
@@ -76,7 +73,6 @@ function DocumentoRow({ doc, onChange, onRemove }: { doc: IDocumento, onChange: 
     );
   }
 
-  // RENDERIZAÇÃO NORMAL PARA AS ENTRADAS MANUAIS DO USUÁRIO
   return (
     <tr className="sub-table-row" style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #f1f5f9' }}>
       <td style={{ padding: '8px 16px' }}>
@@ -136,6 +132,13 @@ function CompetenciaRow({ pasta, onUpdate }: { pasta: IPasta, onUpdate: (p: IPas
     setOpen(true);
   };
 
+  // Ordena a lista: Automáticos (Robô) ficam sempre por primeiro
+  const sortedDocs = [...docs].sort((a, b) => {
+    if (a.isAuto && !b.isAuto) return -1;
+    if (!a.isAuto && b.isAuto) return 1;
+    return 0;
+  });
+
   return (
     <React.Fragment>
       <tr style={{ background: pasta.pasta_liberada_em ? '#f4fbf7' : '#fdfdfd', borderBottom: '1px solid #e2e8f0' }}>
@@ -186,13 +189,14 @@ function CompetenciaRow({ pasta, onUpdate }: { pasta: IPasta, onUpdate: (p: IPas
                     </tr>
                   </thead>
                   <tbody>
-                    {docs.map(doc => (
+                    {/* Renderiza a lista já ordenada */}
+                    {sortedDocs.map(doc => (
                       <DocumentoRow key={doc.id} doc={doc}
                         onChange={(updated) => saveDocs(docs.map(d => d.id === updated.id ? updated : d))}
                         onRemove={() => saveDocs(docs.filter(d => d.id !== doc.id))}
                       />
                     ))}
-                    {docs.length === 0 && (
+                    {sortedDocs.length === 0 && (
                       <tr>
                         <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.8rem' }}>
                           Nenhuma tarefa inserida nesta competência.
@@ -203,7 +207,7 @@ function CompetenciaRow({ pasta, onUpdate }: { pasta: IPasta, onUpdate: (p: IPas
                 </table>
                 <button 
                   onClick={addDoc} 
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '12px', padding: '6px 12px', background: 'white', border: '1px dashed #cbd5e1', borderRadius: '6px', color: '#6366f1', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '12px', padding: '6px 12px', background: 'white', border: '1px dashed #cbd5e1', borderRadius: '6px', color: '#594F7A', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
                 >
                   <Plus size={14} /> Inserir Manual
                 </button>
@@ -218,7 +222,15 @@ function CompetenciaRow({ pasta, onUpdate }: { pasta: IPasta, onUpdate: (p: IPas
 
 function EmpresaRow({ apelido, pastas, onUpdatePasta, onAddPasta }: { apelido: string, pastas: IPasta[], onUpdatePasta: (p: IPasta) => void, onAddPasta: () => void }) {
   const [open, setOpen] = useState(false);
-  const codigo = extrairCodigoEmpresa(apelido);
+  
+  let codigoVisual = "";
+  let nomeVisual = apelido;
+  
+  if (apelido.includes('-')) {
+      const partes = apelido.split('-');
+      codigoVisual = partes[0].trim();
+      nomeVisual = partes.slice(1).join('-').trim();
+  }
 
   return (
     <React.Fragment>
@@ -229,14 +241,16 @@ function EmpresaRow({ apelido, pastas, onUpdatePasta, onAddPasta }: { apelido: s
           </button>
         </td>
         <td>
-            <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.95rem' }}>{apelido}</div>
-            {codigo && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Cód Vínculo: {codigo}</div>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {codigoVisual && <span style={{ fontWeight: 800, color: '#64748b', fontSize: '0.8rem' }}>{codigoVisual}</span>}
+              <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: '0.95rem' }}>{nomeVisual}</span>
+            </div>
         </td>
         <td style={{ textAlign: 'right' }}>
           {pastas.length === 0 ? (
              <button
                onClick={onAddPasta}
-               style={{ background: '#f59e0b', color: 'white', border: 'none', height: '34px', padding: '0 16px', borderRadius: '8px', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+               style={{ background: '#797292', color: 'white', border: 'none', height: '32px', padding: '0 14px', borderRadius: '8px', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
              >
                <Plus size={14} /> CRIAR {pastas.length > 0 ? pastas[0].competencia : ''}
              </button>
@@ -285,12 +299,10 @@ export default function PrioridadeContabilPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Estados de Busca e Paginação da Tela Principal
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Estados do Modal
   const [todasConfigs, setTodasConfigs] = useState<IEmpresaConfig[]>([]);
   const [novoApelido, setNovoApelido] = useState('');
   const [novoTipo, setNovoTipo] = useState<'VITALICIA' | 'MENSAL'>('VITALICIA');
@@ -322,9 +334,26 @@ export default function PrioridadeContabilPage() {
 
   const handleAddEmpresa = async () => {
     if (!novoApelido.trim()) return;
+
+    let codigoExtraido = null;
+    let nomeLimpo = novoApelido.trim().toUpperCase();
+
+    if (nomeLimpo.includes('-')) {
+      const partes = nomeLimpo.split('-');
+      codigoExtraido = partes[0].trim();
+      nomeLimpo = partes.slice(1).join('-').trim(); 
+    }
+
     try {
-      await axios.post('http://127.0.0.1:8000/api/prioridades/config', { apelido: novoApelido.trim().toUpperCase(), tipo: novoTipo, competencia: novoTipo === 'MENSAL' ? mesFiltro : null });
-      setNovoApelido(''); carregarConfigsModal(); carregarDados();
+      await axios.post('http://127.0.0.1:8000/api/prioridades/config', { 
+        codigo: codigoExtraido, 
+        apelido: nomeLimpo,     
+        tipo: novoTipo, 
+        competencia: novoTipo === 'MENSAL' ? mesFiltro : null 
+      });
+      setNovoApelido(''); 
+      carregarConfigsModal(); 
+      carregarDados();
     } catch (err) { console.error(err); }
   };
 
@@ -352,25 +381,47 @@ export default function PrioridadeContabilPage() {
   const handleUpdatePasta = async (updatedPasta: IPasta) => {
     try {
       await axios.post('http://127.0.0.1:8000/api/fechamentos', updatedPasta);
-      
-      // Recarrega os dados completos da API para garantir a injeção das automáticas novamente
       carregarDados();
     } catch (err) { console.error(err); }
   };
 
-  // --- FILTRO E PAGINAÇÃO PRINCIPAL ---
+  // --- FILTRO E PAGINAÇÃO PRINCIPAL (COM ORDENAÇÃO INTELIGENTE) ---
   const empresasFiltradas = useMemo(() => {
+    // Função para verificar se a empresa tem alguma OS do robô neste mês
+    const temRobo = (apelido: string) => {
+      const pasta = pastas.find(p => p.apelido === apelido && p.competencia === mesFiltro);
+      if (!pasta) return false;
+      try {
+        const docs = JSON.parse(pasta.documentos_json || "[]");
+        return docs.some((d: any) => d.isAuto); // Verifica se tem a flag do robô
+      } catch {
+        return false;
+      }
+    };
+
     return empresas
-      .filter(emp => emp.apelido.toLowerCase().includes(searchTerm.toLowerCase()))
-      .sort((a,b) => a.apelido.localeCompare(b.apelido));
-  }, [empresas, searchTerm]);
+      .filter(emp => 
+        emp.apelido.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (emp.codigo && emp.codigo.includes(searchTerm))
+      )
+      .sort((a, b) => {
+        const aRobo = temRobo(a.apelido);
+        const bRobo = temRobo(b.apelido);
+
+        // 1º Nível de Prioridade: Tem dados do Robô/Auditoria?
+        if (aRobo && !bRobo) return -1; // 'a' sobe
+        if (!aRobo && bRobo) return 1;  // 'b' sobe
+
+        // 2º Nível de Prioridade: Desempate por Ordem Alfabética
+        return a.apelido.localeCompare(b.apelido);
+      });
+  }, [empresas, pastas, searchTerm, mesFiltro]);
 
   const totalPages = Math.ceil(empresasFiltradas.length / itemsPerPage);
   const currentItems = empresasFiltradas.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  // --- FILTRO DO MODAL ---
   const configsModalFiltradas = useMemo(() => {
-    return todasConfigs.filter(cfg => cfg.apelido.toLowerCase().includes(searchModal.toLowerCase()));
+    return todasConfigs.filter(cfg => cfg.apelido.toLowerCase().includes(searchModal.toLowerCase()) || (cfg.codigo && cfg.codigo.includes(searchModal)));
   }, [todasConfigs, searchModal]);
 
   return (
@@ -445,7 +496,8 @@ export default function PrioridadeContabilPage() {
                                 <button onClick={() => setEditingApelido(null)} style={{ background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '6px', padding: '0 10px', cursor: 'pointer' }}><X size={16} /></button>
                             </div>
                         ) : (
-                            <div>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                {cfg.codigo && <span style={{ fontWeight: 800, color: '#64748b', fontSize: '0.8rem', marginRight: '8px' }}>{cfg.codigo}</span>}
                                 <span style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.9rem' }}>{cfg.apelido}</span>
                                 <span className={`status-badge ${cfg.tipo === 'VITALICIA' ? 'status-ok' : 'status-pendente'}`} style={{ marginLeft: '10px', fontSize: '0.6rem' }}>{cfg.tipo === 'VITALICIA' ? 'Recorrente' : `Mensal (${cfg.competencia_unica})`}</span>
                             </div>

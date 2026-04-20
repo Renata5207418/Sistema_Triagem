@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Adicionado useEffect aqui
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { LayoutDashboard, FileSearch, Power, Menu, ChevronLeft, Database, ClipboardList } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -8,7 +8,6 @@ import { Login } from './pages/Login'
 import { ResetPassword } from './pages/ResetPassword'
 import MalhaFiscal from './pages/MalhaFiscal';
 import PrioridadeContabil from './pages/PrioridadeContabil';
-
 
 // --- RotaProtegida (Sem alterações aqui) ---
 const RotaProtegida = ({ children }: { children: React.ReactNode }) => {
@@ -44,7 +43,11 @@ function LayoutPrincipal() {
     return 'Sistema';
   };
 
-  // --- NOVA FUNÇÃO: Saudação Dinâmica ---
+  // --- NOVA LÓGICA: Atualiza o título da aba do navegador automaticamente ---
+  useEffect(() => {
+    document.title = `${getPageTitle()}`;
+  }, [location.pathname]); // Executa sempre que a rota mudar
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour >= 5 && hour < 12) return 'Bom dia,';
@@ -54,8 +57,6 @@ function LayoutPrincipal() {
 
   return (
     <div className="app-layout">
-      
-      {/* 1. SIDEBAR (Sem alterações aqui) */}
       <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-logo-container">
           <div className="logo-box">
@@ -89,9 +90,7 @@ function LayoutPrincipal() {
         </button>
       </aside>
 
-      {/* 2. ÁREA DA DIREITA: Header Refinado */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-        
         <header className="top-header">
           <div className="header-left">
             <button onClick={toggleSidebar} className="toggle-sidebar-btn">
@@ -128,7 +127,6 @@ function LayoutPrincipal() {
   )
 }
 
-// --- APP PRINCIPAL ---
 export default function App() {
   return (
     <AuthProvider>
@@ -136,7 +134,6 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/reset-password" element={<ResetPassword />} />
-
           <Route 
             path="/*" 
             element={
