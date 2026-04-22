@@ -226,6 +226,21 @@ class ResilienciaDB:
                 )
             """)
 
+            # ==========================================
+            # 10. CHECKLIST DO DASHBOARD (Painel Executivo)
+            # ==========================================
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS dashboard_checklist (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tarefa_nome TEXT UNIQUE,
+                    tipo TEXT, -- 'AUTO' ou 'MANUAL'
+                    termo_gestta TEXT, -- Ex: 'ISS PRESTADOS'
+                    dia_vencimento INTEGER, -- Ex: 10
+                    status_manual INTEGER DEFAULT 0, -- 0 pendente, 1 concluído
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
     # ==========================================
     # MÉTODOS DE USUÁRIOS E AUTENTICAÇÃO
     # ==========================================
