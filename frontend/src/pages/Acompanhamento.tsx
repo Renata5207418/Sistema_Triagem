@@ -190,9 +190,9 @@ export default function Acompanhamento() {
     }) as any[]
   }, [documentosFlat])
 
-  const filtrados = useMemo(() => {
-    let filtered = agrupadosPorOS.filter(grupo => {
-      const abaMatch = activeTab === 'pendentes' ? grupo.verificado === 0 : grupo.verificado === 1;
+  const { filtrados, totalPendentes, totalConcluidas } = useMemo(() => {
+    // 1. Filtra primeiro a base geral por Mês e por Busca de Texto (ignora as abas)
+    const baseFiltrada = agrupadosPorOS.filter(grupo => {
       const mesMatch = mesFiltro ? grupo.mes_ano === mesFiltro : true;
       const lowerSearch = searchTerm.toLowerCase();
       const textMatch = !searchTerm || 
@@ -200,9 +200,17 @@ export default function Acompanhamento() {
         (grupo.nome_empresa && grupo.nome_empresa.toLowerCase().includes(lowerSearch)) ||
         (grupo.cod_empresa && String(grupo.cod_empresa).includes(lowerSearch));
 
-      return abaMatch && mesMatch && textMatch;
+      return mesMatch && textMatch;
     });
 
+    // 2. Extrai as contagens exatas daquela base filtrada para pintar nas abas
+    const pendentes = baseFiltrada.filter(g => g.verificado === 0).length;
+    const concluidas = baseFiltrada.filter(g => g.verificado === 1).length;
+
+    // 3. Agora sim, divide os dados pela Aba Ativa para desenhar a tabela
+    let filtered = baseFiltrada.filter(grupo => activeTab === 'pendentes' ? grupo.verificado === 0 : grupo.verificado === 1);
+
+    // 4. Aplica a ordenação
     filtered.sort((a, b) => {
       if (a[sortConfig.key] < b[sortConfig.key]) {
         return sortConfig.direction === 'asc' ? -1 : 1;
@@ -213,7 +221,7 @@ export default function Acompanhamento() {
       return 0;
     });
 
-    return filtered;
+    return { filtrados: filtered, totalPendentes: pendentes, totalConcluidas: concluidas };
   }, [agrupadosPorOS, activeTab, searchTerm, mesFiltro, sortConfig]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, mesFiltro])
@@ -237,19 +245,43 @@ export default function Acompanhamento() {
         </div>
       </div>
 
-      {/* ABAS (TABS) MODERNAS */}
+      {/* ABAS (TABS) MODERNAS COM BADGES */}
       <div className="tabs-container">
         <button 
           className={`tab-item ${activeTab === 'pendentes' ? 'active' : ''}`}
           onClick={() => setActiveTab('pendentes')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
         >
           Pendentes de Validação
+          <span style={{
+            background: activeTab === 'pendentes' ? 'var(--primary)' : '#e2e8f0',
+            color: activeTab === 'pendentes' ? 'white' : '#64748b',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            transition: '0.2s'
+          }}>
+            {totalPendentes}
+          </span>
         </button>
         <button 
           className={`tab-item ${activeTab === 'concluidas' ? 'active' : ''}`}
           onClick={() => setActiveTab('concluidas')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
         >
           Validadas / Concluídas
+          <span style={{
+            background: activeTab === 'concluidas' ? '#16a34a' : '#e2e8f0',
+            color: activeTab === 'concluidas' ? 'white' : '#64748b',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            transition: '0.2s'
+          }}>
+            {totalConcluidas}
+          </span>
         </button>
       </div>
 
