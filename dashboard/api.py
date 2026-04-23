@@ -306,10 +306,37 @@ def desmarcar_malha(cod_empresa: str, competencia: str):
 # ROTAS DE PRIORIDADE CONTÁBIL (FECHAMENTOS)
 # ==========================================
 class EmpresaConfigRequest(BaseModel):
-    codigo: Optional[str] = None  
+    codigo: str 
     apelido: str
     tipo: str 
     competencia: Optional[str] = None
+
+@app.get("/api/dominio/empresa/{codigo}")
+def buscar_empresa_dominio(codigo: str):
+    db_dom = DatabaseConnection()
+    if not db_dom.connect():
+        raise HTTPException(status_code=500, detail="Erro ao conectar na Domínio")
+    
+    try:
+        cursor = db_dom.conn.cursor()
+        # Busca o apelido e o nome da empresa na tabela da Domínio
+        cursor.execute("SELECT apel_emp, nome_emp FROM bethadba.geempre WHERE codi_emp = ?", (codigo,))
+        row = cursor.fetchone()
+        
+        if row:
+            apel_emp = str(row[0]).strip().upper() if row[0] else ""
+            nome_emp = str(row[1]).strip().upper() if row[1] else ""
+            
+            # Prioriza o apelido (que costuma ser mais limpo), se não tiver, usa o nome
+            nome_final = apel_emp if len(apel_emp) > 2 else nome_emp
+            
+            return {"codigo": codigo, "apelido": nome_final}
+        else:
+            raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db_dom.close()
 
 @app.get("/api/prioridades")
 def get_prioridades(month: str = Query(None)):
@@ -321,7 +348,11 @@ def get_todas_configs():
 
 @app.post("/api/prioridades/config")
 def save_empresa_config(req: EmpresaConfigRequest):
-    executar_update("INSERT INTO empresas_config (codigo, apelido, tipo, competencia_unica, ativa) VALUES (?, ?, ?, ?, 1) ON CONFLICT(apelido) DO UPDATE SET codigo = excluded.codigo, tipo = excluded.tipo, competencia_unica = excluded.competencia_unica, ativa = 1", (req.codigo, req.apelido.upper(), req.tipo, req.competencia))
+    executar_update("""
+        INSERT INTO empresas_config (codigo, apelido, tipo, competencia_unica, ativa) 
+        VALUES (?, ?, ?, ?, 1) 
+        ON CONFLICT(apelido) DO UPDATE SET codigo = excluded.codigo, tipo = excluded.tipo, competencia_unica = excluded.competencia_unica, ativa = 1
+    """, (req.codigo.strip(), req.apelido.strip().upper(), req.tipo, req.competencia))
     return {"mensagem": "Configuração salva"}
 
 @app.put("/api/prioridades/config/{apelido}/toggle")
@@ -349,9 +380,14 @@ def get_fechamentos():
     pastas_dict = {(p['apelido'], p['competencia']): dict(p) for p in pastas_db}
     
     query_os = """
-        SELECT d.id_ticket, d.cod_emp, d.ultima_tentativa, d.verificado as os_verificado, d.data_auditoria as os_data, e.apelido, m.verificado as malha_verificado, m.data_auditoria as malha_data
-        FROM downloads d JOIN empresas_config e ON (e.codigo IS NOT NULL AND e.codigo != '' AND TRIM(CAST(e.codigo AS TEXT)) = TRIM(CAST(d.cod_emp AS TEXT))) OR (e.apelido LIKE TRIM(CAST(d.cod_emp AS TEXT)) || '-%') OR (e.apelido LIKE TRIM(CAST(d.cod_emp AS TEXT)) || ' - %') OR (e.apelido = TRIM(CAST(d.cod_emp AS TEXT)))
-        LEFT JOIN malha_fiscal_validacao m ON TRIM(CAST(m.cod_empresa AS TEXT)) = TRIM(CAST(d.cod_emp AS TEXT)) AND m.competencia = strftime('%Y-%m', d.ultima_tentativa) WHERE d.ultima_tentativa IS NOT NULL
+        SELECT d.id_ticket, d.cod_emp, d.ultima_tentativa, d.verificado as os_verificado, 
+               d.data_auditoria as os_data, e.apelido, m.verificado as malha_verificado, 
+               m.data_auditoria as malha_data
+        FROM downloads d 
+        JOIN empresas_config e ON TRIM(CAST(e.codigo AS TEXT)) = TRIM(CAST(d.cod_emp AS TEXT))
+        LEFT JOIN malha_fiscal_validacao m ON TRIM(CAST(m.cod_empresa AS TEXT)) = TRIM(CAST(d.cod_emp AS TEXT)) 
+             AND m.competencia = strftime('%Y-%m', d.ultima_tentativa) 
+        WHERE d.ultima_tentativa IS NOT NULL
     """
     try: oss = executar_query_dict(query_os)
     except Exception: oss = [] 
@@ -360,17 +396,27 @@ def get_fechamentos():
         comp = os_item['ultima_tentativa'][:7] 
         apelido = os_item['apelido']
         key = (apelido, comp)
-        if key not in pastas_dict: pastas_dict[key] = {"apelido": apelido, "competencia": comp, "pasta_liberada_em": None, "documentos_json": "[]"}
+        if key not in pastas_dict: 
+            pastas_dict[key] = {"apelido": apelido, "competencia": comp, "pasta_liberada_em": None, "documentos_json": "[]"}
         
         docs_salvos = json.loads(pastas_dict[key]['documentos_json'])
+        # Remove lixo de versões anteriores e IDs automáticos para evitar duplicados
         docs_limpos = [d for d in docs_salvos if not (d.get("isAuto") == True or str(d.get("nome", "")).startswith("OS #"))]
         
         is_validado = (str(os_item['os_verificado']) == '1') or (str(os_item['malha_verificado']) == '1')
         data_auditoria = os_item['os_data'] if str(os_item['os_verificado']) == '1' else os_item['malha_data']
         
-        docs_limpos.append({"id": f"AUTO-{os_item['id_ticket']}", "nome": f"OS #{os_item['id_ticket']}", "recebido": os_item['ultima_tentativa'][:10], "liberado_em": data_auditoria if is_validado else None, "isAuto": True})
+        docs_limpos.append({
+            "id": f"AUTO-{os_item['id_ticket']}", 
+            "nome": f"OS #{os_item['id_ticket']}", 
+            "recebido": os_item['ultima_tentativa'][:10], 
+            "liberado_em": data_auditoria if is_validado else None, 
+            "isAuto": True
+        })
         pastas_dict[key]['documentos_json'] = json.dumps(docs_limpos)
+        
     return list(pastas_dict.values())
+
 
 @app.post("/api/fechamentos")
 def save_fechamento(payload: dict):
@@ -378,16 +424,31 @@ def save_fechamento(payload: dict):
     docs_manuais = [d for d in docs if not (d.get("isAuto") == True or str(d.get("nome", "")).startswith("OS #"))]
     apelido, competencia, liberado_em = payload["apelido"], payload["competencia"], payload.get("pasta_liberada_em")
     
+    # 1. Atualiza controle de pastas
     row = executar_query_dict("SELECT id FROM controle_pastas WHERE apelido = ? AND competencia = ?", (apelido, competencia))
-    if row: executar_update("UPDATE controle_pastas SET pasta_liberada_em = ?, documentos_json = ?, updated_at = datetime('now') WHERE id = ?", (liberado_em, json.dumps(docs_manuais), row[0]['id']))
-    else: executar_update("INSERT INTO controle_pastas (apelido, competencia, pasta_liberada_em, documentos_json, updated_at) VALUES (?, ?, ?, ?, datetime('now'))", (apelido, competencia, liberado_em, json.dumps(docs_manuais)))
+    if row: 
+        executar_update("UPDATE controle_pastas SET pasta_liberada_em = ?, documentos_json = ?, updated_at = datetime('now') WHERE id = ?", (liberado_em, json.dumps(docs_manuais), row[0]['id']))
+    else: 
+        executar_update("INSERT INTO controle_pastas (apelido, competencia, pasta_liberada_em, documentos_json, updated_at) VALUES (?, ?, ?, ?, datetime('now'))", (apelido, competencia, liberado_em, json.dumps(docs_manuais)))
         
+    # 2. Busca o código real no banco (Sem split!)
     row_emp = executar_query_dict("SELECT codigo FROM empresas_config WHERE apelido = ?", (apelido,))
-    cod_empresa = row_emp[0]['codigo'] if row_emp and row_emp[0]['codigo'] else apelido.split('-')[0].strip()
-    if liberado_em is None: executar_update("UPDATE malha_fiscal_validacao SET verificado = 0 WHERE TRIM(CAST(cod_empresa AS TEXT)) = ? AND competencia = ?", (cod_empresa, competencia))
-    else: executar_update("INSERT INTO malha_fiscal_validacao (cod_empresa, competencia, verificado, auditado_por, data_auditoria) VALUES (?, ?, 1, 'Via Fechamento', ?) ON CONFLICT(cod_empresa, competencia) DO UPDATE SET verificado = 1, auditado_por = excluded.auditado_por, data_auditoria = excluded.data_auditoria", (cod_empresa, competencia, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    if not row_emp:
+        raise HTTPException(status_code=404, detail="Empresa não configurada na carteira.")
+    
+    cod_empresa = row_emp[0]['codigo']
+    
+    # 3. Sincroniza com a Malha Fiscal
+    if liberado_em is None: 
+        executar_update("UPDATE malha_fiscal_validacao SET verificado = 0 WHERE TRIM(CAST(cod_empresa AS TEXT)) = ? AND competencia = ?", (cod_empresa, competencia))
+    else: 
+        executar_update("""
+            INSERT INTO malha_fiscal_validacao (cod_empresa, competencia, verificado, auditado_por, data_auditoria) 
+            VALUES (?, ?, 1, 'Via Fechamento', ?) 
+            ON CONFLICT(cod_empresa, competencia) DO UPDATE SET verificado = 1, auditado_por = excluded.auditado_por, data_auditoria = excluded.data_auditoria
+        """, (cod_empresa, competencia, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
     return {"mensagem": "Sincronizado!"}
-
 
 # ==========================================
 # ROTAS DO DASHBOARD CHECKLIST E GESTTA

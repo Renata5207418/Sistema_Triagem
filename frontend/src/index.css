@@ -332,6 +332,23 @@ body {
   box-shadow: 0 0 0 4px var(--primary-light);
 }
 
+/* Input padrão sem espaço para ícones */
+.standard-input {
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.85rem;
+  padding: 0 12px; /* Preenchimento normal, sem esmagar o texto */
+  transition: 0.2s;
+  background-color: white;
+}
+
+.standard-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-light);
+}
+
 /* =========================================
    6. TABELAS MODERNAS E BADGES
 ========================================= */

@@ -224,7 +224,7 @@ export default function Dashboard() {
             <div className="card" style={{ padding: '24px', minHeight: '350px', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
                     <Trophy size={20} color="#f59e0b" />
-                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)' }}>Top Demandas do Mês</h3>
+                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)' }}> TOP Empresas do Mês</h3>
                 </div>
 
                 {resumo.top_empresas.length === 0 ? (

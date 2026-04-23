@@ -59,9 +59,7 @@ function DocumentoRow({ doc, onChange, onRemove }: { doc: IDocumento, onChange: 
         <td style={{ padding: '5px 16px', textAlign: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
             {doc.liberado_em ? <CheckCircle size={22} fill="#dcfce7" color="#16a34a" /> : <Circle size={22} color="#cbd5e1" />}
-            <span className={`status-pill ${doc.liberado_em ? 'sucesso' : 'erro'}`} style={{ background: doc.liberado_em ? '' : '#fef9c3', color: doc.liberado_em ? '' : '#a16207', fontSize:'0.63rem'
-
-             }}>
+            <span className={`status-pill ${doc.liberado_em ? 'sucesso' : 'erro'}`} style={{ background: doc.liberado_em ? '' : '#fef9c3', color: doc.liberado_em ? '' : '#a16207', fontSize:'0.63rem' }}>
               {doc.liberado_em ? 'Validado na Malha' : 'Pendente na Auditoria'}
             </span>
           </div>
@@ -304,6 +302,7 @@ export default function PrioridadeContabilPage() {
   const itemsPerPage = 10;
 
   const [todasConfigs, setTodasConfigs] = useState<IEmpresaConfig[]>([]);
+  const [novoCodigo, setNovoCodigo] = useState('');
   const [novoApelido, setNovoApelido] = useState('');
   const [novoTipo, setNovoTipo] = useState<'VITALICIA' | 'MENSAL'>('VITALICIA');
   const [searchModal, setSearchModal] = useState(''); 
@@ -332,29 +331,58 @@ export default function PrioridadeContabilPage() {
   useEffect(() => { if (modalOpen) { carregarConfigsModal(); setSearchModal(''); } }, [modalOpen]);
   useEffect(() => { setCurrentPage(1); }, [searchTerm]); 
 
+  // --- BUSCA AUTOMÁTICA DA EMPRESA ---
+  const buscarEmpresaNaDominio = async () => {
+    if (!novoCodigo.trim()) return; 
+    
+    try {
+      const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/${novoCodigo.trim()}`);
+      console.log("Retorno da API Domínio:", res.data);
+      
+      if (res.data && res.data.apelido !== undefined) {
+        setNovoApelido(res.data.apelido); 
+      }
+    } catch (err) {
+      console.warn("Empresa não encontrada na Domínio com este código.");
+    }
+  };
+
+  // --- BOTÃO ADICIONAR INTELIGENTE ---
   const handleAddEmpresa = async () => {
-    if (!novoApelido.trim()) return;
+    let apelidoFinal = novoApelido.trim();
 
-    let codigoExtraido = null;
-    let nomeLimpo = novoApelido.trim().toUpperCase();
+    if (novoCodigo.trim() && !apelidoFinal) {
+       try {
+          const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/${novoCodigo.trim()}`);
+          if (res.data && res.data.apelido) {
+             apelidoFinal = res.data.apelido;
+             setNovoApelido(apelidoFinal); 
+          }
+       } catch (e) {
+          console.warn("Busca automática no botão falhou.");
+       }
+    }
 
-    if (nomeLimpo.includes('-')) {
-      const partes = nomeLimpo.split('-');
-      codigoExtraido = partes[0].trim();
-      nomeLimpo = partes.slice(1).join('-').trim(); 
+    if (!novoCodigo.trim() || !apelidoFinal) {
+      alert("Por favor, preencha o Código e aguarde o Nome da empresa carregar."); 
+      return; 
     }
 
     try {
       await axios.post('http://127.0.0.1:8000/api/prioridades/config', { 
-        codigo: codigoExtraido, 
-        apelido: nomeLimpo,     
+        codigo: novoCodigo.trim(), 
+        apelido: apelidoFinal.toUpperCase(),     
         tipo: novoTipo, 
         competencia: novoTipo === 'MENSAL' ? mesFiltro : null 
       });
+      
+      setNovoCodigo('');
       setNovoApelido(''); 
       carregarConfigsModal(); 
       carregarDados();
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error("Erro ao cadastrar empresa:", err); 
+    }
   };
 
   const handleToggleAtiva = async (apelido: string) => {
@@ -385,15 +413,13 @@ export default function PrioridadeContabilPage() {
     } catch (err) { console.error(err); }
   };
 
-  // --- FILTRO E PAGINAÇÃO PRINCIPAL (COM ORDENAÇÃO INTELIGENTE) ---
   const empresasFiltradas = useMemo(() => {
-    // Função para verificar se a empresa tem alguma OS do robô neste mês
     const temRobo = (apelido: string) => {
       const pasta = pastas.find(p => p.apelido === apelido && p.competencia === mesFiltro);
       if (!pasta) return false;
       try {
         const docs = JSON.parse(pasta.documentos_json || "[]");
-        return docs.some((d: any) => d.isAuto); // Verifica se tem a flag do robô
+        return docs.some((d: any) => d.isAuto);
       } catch {
         return false;
       }
@@ -408,11 +434,9 @@ export default function PrioridadeContabilPage() {
         const aRobo = temRobo(a.apelido);
         const bRobo = temRobo(b.apelido);
 
-        // 1º Nível de Prioridade: Tem dados do Robô/Auditoria?
-        if (aRobo && !bRobo) return -1; // 'a' sobe
-        if (!aRobo && bRobo) return 1;  // 'b' sobe
+        if (aRobo && !bRobo) return -1; 
+        if (!aRobo && bRobo) return 1;  
 
-        // 2º Nível de Prioridade: Desempate por Ordem Alfabética
         return a.apelido.localeCompare(b.apelido);
       });
   }, [empresas, pastas, searchTerm, mesFiltro]);
@@ -463,13 +487,41 @@ export default function PrioridadeContabilPage() {
             <div style={{ padding: '24px', overflowY: 'auto' }}>
               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', marginBottom: '24px', border: '1px solid var(--border)' }}>
                 <p style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', marginBottom: '10px', textTransform: 'uppercase' }}>Cadastrar Nova Empresa</p>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input type="text" className="login-input" placeholder="Ex: 743 - TECNOFIT" value={novoApelido} onChange={(e) => setNovoApelido(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddEmpresa()} style={{ flex: 1, height: '40px' }} />
-                  <select value={novoTipo} onChange={e => setNovoTipo(e.target.value as any)} style={{ width: '130px', padding: '0 12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#334155', fontWeight: 600, fontSize: '0.85rem', outline: 'none' }}>
+                
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
+                  <input 
+                    type="text" 
+                    className="standard-input" 
+                    placeholder="Cód" 
+                    value={novoCodigo} 
+                    onChange={(e) => setNovoCodigo(e.target.value)} 
+                    onBlur={buscarEmpresaNaDominio} 
+                    onKeyDown={(e) => e.key === 'Enter' && buscarEmpresaNaDominio()} 
+                    style={{ minWidth: '60px', maxWidth: '60px', height: '40px', textAlign: 'center', padding: '0', flexShrink: 0 }} 
+                  />
+                  <input 
+                    type="text" 
+                    className="standard-input"
+                    placeholder="Nome da Empresa..." 
+                    value={novoApelido} 
+                    onChange={(e) => setNovoApelido(e.target.value)} 
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddEmpresa()} 
+                    style={{ flex: 1, minWidth: '120px', height: '40px', paddingLeft: '12px' }} 
+                  />
+                  <select 
+                    value={novoTipo} 
+                    onChange={e => setNovoTipo(e.target.value as any)} 
+                    style={{ width: '115px', height: '40px', padding: '0 8px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#334155', fontWeight: 600, fontSize: '0.8rem', outline: 'none', flexShrink: 0 }}
+                  >
                     <option value="VITALICIA">Recorrente</option>
                     <option value="MENSAL">Só este mês</option>
                   </select>
-                  <button onClick={handleAddEmpresa} style={{ background: 'var(--primary)', color: 'white', border: 'none', padding: '0 16px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}>Adicionar</button>
+                  <button 
+                    onClick={handleAddEmpresa} 
+                    style={{ height: '40px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    Adicionar
+                  </button>
                 </div>
               </div>
               
