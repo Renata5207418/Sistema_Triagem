@@ -2,11 +2,12 @@ import os
 import sys
 import logging
 import shutil
-import fitz  
+import fitz
 import io
 import base64
 from pathlib import Path
 from dotenv import load_dotenv
+import unicodedata
 
 pasta_atual = str(Path(__file__).parent)
 if pasta_atual not in sys.path:
@@ -25,61 +26,163 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [TRIAGEM] %(message)
 RAIZ_PROJETO = Path(__file__).parent.parent
 load_dotenv(dotenv_path=RAIZ_PROJETO / ".env")
 
-BASE_CLIENTES = Path(os.getenv("CLIENTES_DIR", RAIZ_PROJETO / "CLIENTES_REDE")) 
+BASE_CLIENTES = Path(os.getenv("CLIENTES_DIR", RAIZ_PROJETO / "CLIENTES_REDE"))
 
 # Mapa atualizado com fatura_consumo para resolver as NFC-e de gás
 MAPA_PASTAS = {
-    'guia': 'DOCUMENTOS GERAIS', 
-    'boleto': 'DOCUMENTOS GERAIS', 
+    'guia': 'DOCUMENTOS GERAIS',
+    'boleto': 'DOCUMENTOS GERAIS',
     'invoice_exterior': 'INVOICE',
-    'fatura_consumo': 'DANFE', 
+    'fatura_consumo': 'DANFE',
     'comprovante_pagamento': 'DOCUMENTOS GERAIS',
-    'danfe': 'DANFE', 
-    'extrato': 'EXTRATO', 
-    'planilhas': 'PLANILHAS', 
+    'danfe': 'DANFE',
+    'extrato': 'EXTRATO',
+    'planilhas': 'PLANILHAS',
     'xml': 'XML',
-    'fatura_locacao': 'DOCUMENTOS GERAIS' 
+    'fatura_locacao': 'DOCUMENTOS GERAIS'
 }
+
+# ==========================================
+# NOVA CAMADA PRÉ-IA
+# ==========================================
+def normalizar_texto(texto: str) -> str:
+    texto = texto.lower().strip()
+    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("utf-8")
+    return texto
+
+def detectar_tipo_pagina(texto: str) -> str:
+    t = normalizar_texto(texto)
+
+    # Extrato tem prioridade máxima para não confundir "pagamento de DARF"
+    # dentro de lançamento bancário com uma guia propriamente dita.
+    if (
+        "saldo anterior" in t
+        or "lancamentos do periodo" in t
+        or "saldo total disponivel dia" in t
+        or "saldo total" in t and "disponivel" in t
+    ):
+        return "extrato"
+
+    # Nota de serviço
+    if "nfs-e" in t or "nota fiscal de servico" in t or "nota fiscal de servicos" in t:
+        return "nota_servico"
+
+    # Guia propriamente dita
+    if "documento de arrecadacao de receitas federais" in t:
+        return "guia"
+
+    if "simples nacional" in t or "documento de arrecadacao do simples nacional" in t:
+        return "guia"
+
+    if "gnre" in t or "guia nacional de recolhimento" in t:
+        return "guia"
+
+    if "dam" in t and "prefeitura" in t:
+        return "guia"
+
+    # Boleto real
+    if "linha digitavel" in t:
+        return "boleto"
+
+    if ("codigo de barras" in t or "ficha de compensacao" in t) and "banco" in t:
+        return "boleto"
+
+    # Comprovante
+    if "comprovante de pagamento" in t or "comprovante pix" in t or "recibo" in t:
+        return "comprovante"
+
+    # DARF isolado como fallback de guia,
+    # mas evita classificar extrato como guia.
+    if "darf" in t and "lancamentos do periodo" not in t and "saldo anterior" not in t:
+        return "guia"
+
+    return "desconhecido"
+
+def analisar_documento_misto(doc) -> str:
+    """
+    Decide se o PDF parece conter múltiplos documentos diferentes antes de enviar para a IA.
+    Regra conservadora:
+    - PDFs muito curtos (até 2 páginas) => OK
+    - Analisa até 6 páginas
+    - Se houver pelo menos 2 páginas com texto útil e mais de 1 tipo detectado => DOCUMENTOS_UNIFICADOS
+    - Caso contrário => OK
+    """
+    try:
+        if len(doc) <= 2:
+            return "OK"
+
+        tipos = []
+        paginas_com_texto = 0
+
+        for i in range(min(len(doc), 6)):
+            texto = doc[i].get_text("text")
+
+            if not texto or len(texto.strip()) < 80:
+                continue
+
+            paginas_com_texto += 1
+            tipo = detectar_tipo_pagina(texto)
+            tipos.append(tipo)
+
+        tipos_unicos = set(tipos)
+
+        if "desconhecido" in tipos_unicos and len(tipos_unicos) > 1:
+            tipos_unicos.remove("desconhecido")
+
+        if paginas_com_texto >= 2 and len(tipos_unicos) > 1:
+            logging.info(f"Pré-IA: documento misto detectado. Tipos={tipos_unicos}")
+            return "DOCUMENTOS_UNIFICADOS"
+
+        return "OK"
+
+    except Exception as e:
+        logging.warning(f"Erro na análise pré-IA: {e}")
+        return "OK"
 
 # ==========================================
 # 1. FUNÇÕES DE ARQUIVO E REDE
 # ==========================================
 def obter_nome_unico(caminho_destino: Path, nome_arquivo: str) -> Path:
     caminho_completo = caminho_destino / nome_arquivo
-    if not caminho_completo.exists(): return caminho_completo
+    if not caminho_completo.exists():
+        return caminho_completo
     nome_base = caminho_completo.stem
     extensao = caminho_completo.suffix
     contador = 1
     while True:
         # CORREÇÃO: Variável 'novo_caminho' corrigida (sem o 'i' extra)
         novo_caminho = caminho_destino / f"{nome_base}_{contador}{extensao}"
-        if not novo_caminho.exists(): return novo_caminho
+        if not novo_caminho.exists():
+            return novo_caminho
         contador += 1
 
 def limpar_pastas_vazias(pasta_raiz: Path):
     pastas_seguras = list(MAPA_PASTAS.values()) + [
-        'LIMITE_PAGINAS', 'ERRO_PROCESSAMENTO', 'LOW_CONFIDENCE', 'IMAGEM_PRINT', 
-        'ERRO_EXTENSAO', 'NOTAS_DE_SERVICO'
+        'LIMITE_PAGINAS', 'ERRO_PROCESSAMENTO', 'LOW_CONFIDENCE', 'IMAGEM_PRINT',
+        'ERRO_EXTENSAO', 'NOTAS_DE_SERVICO', 'DOCUMENTOS_UNIFICADOS'
     ]
     for root, dirs, files in os.walk(pasta_raiz, topdown=False):
         for d in dirs:
             dir_path = Path(root) / d
             if dir_path.name not in pastas_seguras and not any(dir_path.iterdir()):
-                try: dir_path.rmdir()
-                except OSError: pass
+                try:
+                    dir_path.rmdir()
+                except OSError:
+                    pass
 
 def separar_nao_pdfs(pasta_ticket: Path, id_ticket: int):
     regras = {
         '.csv': 'PLANILHAS', '.xls': 'PLANILHAS', '.xlsx': 'PLANILHAS',
-        '.png': 'IMAGEM_PRINT', '.jpg': 'IMAGEM_PRINT', '.jpeg': 'IMAGEM_PRINT', 
+        '.png': 'IMAGEM_PRINT', '.jpg': 'IMAGEM_PRINT', '.jpeg': 'IMAGEM_PRINT',
         '.xml': 'XML', '.ofx': 'EXTRATO'
     }
-    
+
     for arquivo in list(pasta_ticket.rglob('*')):
         if arquivo.is_file():
             ext = arquivo.suffix.lower()
-            if ext == '.pdf': continue
-                
+            if ext == '.pdf':
+                continue
+
             if ext in regras:
                 nome_pasta = regras[ext]
                 status_banco = "SUCESSO"
@@ -96,22 +199,35 @@ def separar_nao_pdfs(pasta_ticket: Path, id_ticket: int):
                 destino.mkdir(exist_ok=True)
                 caminho_final = obter_nome_unico(destino, arquivo.name)
                 shutil.move(str(arquivo), str(caminho_final))
-                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, categoria_banco, nome_pasta, status_banco, motivo_banco)
+                db.registrar_documento_triado(
+                    id_ticket,
+                    arquivo.name,
+                    caminho_final.name,
+                    categoria_banco,
+                    nome_pasta,
+                    status_banco,
+                    motivo_banco
+                )
 
 def mover_cliente_rede(id_ticket: int, pasta_ticket: Path, cod_emp: str):
-    if not cod_emp or cod_emp == "0": return
+    if not cod_emp or cod_emp == "0":
+        return
     try:
-        mes_ano = pasta_ticket.parent.name  
-        ano = mes_ano.split(".")[1]         
+        mes_ano = pasta_ticket.parent.name
+        ano = mes_ano.split(".")[1]
         cliente_dir = None
         if BASE_CLIENTES.exists():
             for d in BASE_CLIENTES.iterdir():
                 if d.is_dir() and (d.name.startswith(f"{cod_emp}-") or d.name.startswith(f"{cod_emp} -")):
                     cliente_dir = d
                     break
-        if not cliente_dir: return
-        pasta_contabil_nome = next((d.name for d in cliente_dir.iterdir() if d.name.upper() in ["CONTÁBIL", "CONTABIL"]), "CONTÁBIL")
-        nome_pasta_os = pasta_ticket.name 
+        if not cliente_dir:
+            return
+        pasta_contabil_nome = next(
+            (d.name for d in cliente_dir.iterdir() if d.name.upper() in ["CONTÁBIL", "CONTABIL"]),
+            "CONTÁBIL"
+        )
+        nome_pasta_os = pasta_ticket.name
         destino_contabil = cliente_dir / pasta_contabil_nome / "MOVIMENTO" / ano / mes_ano / "TRIAGEM_ROBO" / nome_pasta_os
         destino_fiscal = cliente_dir / "FISCAL" / "IMPOSTOS" / ano / mes_ano / "MCALC" / "TRIAGEM_ROBO" / nome_pasta_os
         os.makedirs(destino_contabil, exist_ok=True)
@@ -120,7 +236,6 @@ def mover_cliente_rede(id_ticket: int, pasta_ticket: Path, cod_emp: str):
         shutil.copytree(str(pasta_ticket), str(destino_fiscal), dirs_exist_ok=True)
     except Exception as e:
         logging.error(f"Ticket {id_ticket}: Erro rede: {e}")
-
 
 # ==========================================
 # 2. MOTOR PRINCIPAL
@@ -138,30 +253,66 @@ def processar_ticket(id_ticket: int, caminho_pasta: str, qtd_esperada: int, cod_
         if db_dom.connect():
             cnpjs_cliente = db_dom.obter_cnpjs_do_grupo(cod_emp)
             db_dom.close()
-    
+
     arquivos_encontrados = len([f for f in pasta_ticket.rglob('*') if f.is_file()])
     separar_nao_pdfs(pasta_ticket, id_ticket)
-    
+
     pastas_seguranca = list(MAPA_PASTAS.values()) + [
-        'LIMITE_PAGINAS', 'ERRO_PROCESSAMENTO', 'LOW_CONFIDENCE', 'IMAGEM_PRINT', 
-        'ERRO_EXTENSAO', 'NOTAS_DE_SERVICO'
+        'LIMITE_PAGINAS', 'ERRO_PROCESSAMENTO', 'LOW_CONFIDENCE', 'IMAGEM_PRINT',
+        'ERRO_EXTENSAO', 'NOTAS_DE_SERVICO', 'DOCUMENTOS_UNIFICADOS'
     ]
-    
+
     for arquivo in list(pasta_ticket.rglob('*.pdf')):
         if arquivo.is_file():
-            if any(p in arquivo.parts for p in pastas_seguranca): continue
-                
+            if any(p in arquivo.parts for p in pastas_seguranca):
+                continue
+
             try:
                 doc = fitz.open(str(arquivo))
-                if doc.needs_pass: raise ValueError("PDF Protegido por Senha")
-                
+                if doc.needs_pass:
+                    raise ValueError("PDF Protegido por Senha")
+
                 if len(doc) > 250:
                     destino = pasta_ticket / 'LIMITE_PAGINAS'
                     doc.close()
                     destino.mkdir(exist_ok=True)
                     caminho_final = obter_nome_unico(destino, arquivo.name)
                     shutil.move(str(arquivo), str(caminho_final))
-                    db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ignorar_tamanho", "LIMITE_PAGINAS", "SUCESSO")
+                    db.registrar_documento_triado(
+                        id_ticket,
+                        arquivo.name,
+                        caminho_final.name,
+                        "ignorar_tamanho",
+                        "LIMITE_PAGINAS",
+                        "SUCESSO"
+                    )
+                    continue
+
+                # ==========================================
+                # NOVA ETAPA PRÉ-IA
+                # ==========================================
+                decisao_pre_ia = analisar_documento_misto(doc)
+
+                if decisao_pre_ia == "DOCUMENTOS_UNIFICADOS":
+                    destino = pasta_ticket / 'DOCUMENTOS_UNIFICADOS'
+                    destino.mkdir(exist_ok=True)
+
+                    novo_nome = f"DOCUMENTO_UNIFICADO_{arquivo.stem.replace(' ', '_')}{arquivo.suffix}"
+                    caminho_final = obter_nome_unico(destino, novo_nome)
+
+                    doc.close()
+                    shutil.move(str(arquivo), str(caminho_final))
+
+                    db.registrar_documento_triado(
+                        id_ticket,
+                        arquivo.name,
+                        caminho_final.name,
+                        "documento_unificado",
+                        "DOCUMENTOS_UNIFICADOS",
+                        "ATENCAO",
+                        "Arquivo contém múltiplos tipos de documento; não enviado para IA."
+                    )
+                    logging.info(f"-> {caminho_final.name} [ATENCAO]")
                     continue
 
                 # Preparação visual
@@ -169,14 +320,14 @@ def processar_ticket(id_ticket: int, caminho_pasta: str, qtd_esperada: int, cod_
                 primeira_pag.insert_pdf(doc, from_page=0, to_page=0)
                 pdf_bytes = primeira_pag.tobytes()
                 primeira_pag.close()
-                doc.close() 
-                
+                doc.close()
+
                 pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
-                
+
                 logging.info(f"Classificando visualmente [{arquivo.name}]...")
                 resultado_ia = classificar_documento_claude(pdf_base64)
                 categoria_ia = resultado_ia.get("categoria", "ignorar")
-                
+
                 status_banco = "SUCESSO"
                 if categoria_ia == 'ERRO_API':
                     status_banco = "ERRO"
@@ -187,23 +338,34 @@ def processar_ticket(id_ticket: int, caminho_pasta: str, qtd_esperada: int, cod_
                 elif categoria_ia == 'nota_servico':
                     cnpj_p = resultado_ia.get("cnpj_prestador")
                     cnpj_t = resultado_ia.get("cnpj_tomador")
-                    if cnpj_p in cnpjs_cliente: nome_pasta_final = "NOTAS_DE_SERVICO/EMITIDAS"
-                    elif cnpj_t in cnpjs_cliente: nome_pasta_final = "NOTAS_DE_SERVICO/TOMADAS"
-                    else: nome_pasta_final = "NOTAS_DE_SERVICO/TERCEIROS"
+                    if cnpj_p in cnpjs_cliente:
+                        nome_pasta_final = "NOTAS_DE_SERVICO/EMITIDAS"
+                    elif cnpj_t in cnpjs_cliente:
+                        nome_pasta_final = "NOTAS_DE_SERVICO/TOMADAS"
+                    else:
+                        nome_pasta_final = "NOTAS_DE_SERVICO/TERCEIROS"
                 else:
                     nome_pasta_final = MAPA_PASTAS.get(categoria_ia, 'LOW_CONFIDENCE')
-                    if nome_pasta_final == 'LOW_CONFIDENCE': status_banco = "ATENCAO"
+                    if nome_pasta_final == 'LOW_CONFIDENCE':
+                        status_banco = "ATENCAO"
 
-                destino = Path(os.path.normpath(str(pasta_ticket / nome_pasta_final))) 
+                destino = Path(os.path.normpath(str(pasta_ticket / nome_pasta_final)))
                 destino.mkdir(parents=True, exist_ok=True)
-                
+
                 novo_nome = f"{categoria_ia.upper()}_{arquivo.stem.replace(' ', '_')}{arquivo.suffix}"
                 caminho_final = obter_nome_unico(destino, novo_nome)
                 shutil.move(str(arquivo), str(caminho_final))
-                
-                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, categoria_ia, str(nome_pasta_final), status_banco)
+
+                db.registrar_documento_triado(
+                    id_ticket,
+                    arquivo.name,
+                    caminho_final.name,
+                    categoria_ia,
+                    str(nome_pasta_final),
+                    status_banco
+                )
                 logging.info(f"-> {caminho_final.name} [{status_banco}]")
-                
+
             except Exception as e:
                 logging.error(f"Erro PDF {arquivo.name}: {e}")
                 erro_dir = pasta_ticket / 'ERRO_PROCESSAMENTO'
@@ -211,11 +373,23 @@ def processar_ticket(id_ticket: int, caminho_pasta: str, qtd_esperada: int, cod_
                 caminho_final = obter_nome_unico(erro_dir, arquivo.name)
                 shutil.move(str(arquivo), str(caminho_final))
                 msg_erro = "PDF Protegido por Senha" if "Protegido por Senha" in str(e) else str(e)
-                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ERRO", "ERRO_PROCESSAMENTO", "ERRO", msg_erro)
+                db.registrar_documento_triado(
+                    id_ticket,
+                    arquivo.name,
+                    caminho_final.name,
+                    "ERRO",
+                    "ERRO_PROCESSAMENTO",
+                    "ERRO",
+                    msg_erro
+                )
 
     limpar_pastas_vazias(pasta_ticket)
     if arquivos_encontrados != qtd_esperada:
-        db.marcar_ticket_triado(id_ticket, "CONCLUIDO_COM_DIVERGENCIA", f"Esperava {qtd_esperada}, encontrou {arquivos_encontrados}")
+        db.marcar_ticket_triado(
+            id_ticket,
+            "CONCLUIDO_COM_DIVERGENCIA",
+            f"Esperava {qtd_esperada}, encontrou {arquivos_encontrados}"
+        )
     else:
         db.marcar_ticket_triado(id_ticket, "CONCLUIDO")
     mover_cliente_rede(id_ticket, pasta_ticket, cod_emp)
@@ -224,7 +398,8 @@ def executar_triagem():
     logging.info("Iniciando Módulo de Triagem IA...")
     db._criar_tabelas()
     pendentes = db.get_tickets_pendentes_triagem()
-    if not pendentes: return
+    if not pendentes:
+        return
     for p in pendentes:
         if not p['caminho_pasta']:
             db.marcar_ticket_triado(p['id_ticket'], "SEM_ANEXOS")
@@ -233,4 +408,3 @@ def executar_triagem():
 
 if __name__ == "__main__":
     executar_triagem()
-    

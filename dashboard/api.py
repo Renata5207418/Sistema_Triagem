@@ -374,11 +374,11 @@ def renomear_empresa_config(apelido: str, req: RenameEmpresaRequest):
     executar_update("UPDATE controle_pastas SET apelido = ? WHERE apelido = ?", (novo_nome, apelido))
     return {"mensagem": "Renomeado!"}
 
+
 @app.get("/api/fechamentos")
 def get_fechamentos():
     pastas_db = executar_query_dict("SELECT * FROM controle_pastas")
-    pastas_dict = {(p['apelido'], p['competencia']): dict(p) for p in pastas_db}
-    
+    pastas_dict = {(p['apelido'], p['competencia']): dict(p) for p in pastas_db}    
     query_os = """
         SELECT d.id_ticket, d.cod_emp, d.ultima_tentativa, d.verificado as os_verificado, 
                d.data_auditoria as os_data, e.apelido, m.verificado as malha_verificado, 
@@ -388,9 +388,16 @@ def get_fechamentos():
         LEFT JOIN malha_fiscal_validacao m ON TRIM(CAST(m.cod_empresa AS TEXT)) = TRIM(CAST(d.cod_emp AS TEXT)) 
              AND m.competencia = strftime('%Y-%m', d.ultima_tentativa) 
         WHERE d.ultima_tentativa IS NOT NULL
+          AND EXISTS (
+              SELECT 1 FROM documentos_triados dt 
+              WHERE dt.id_ticket = d.id_ticket 
+                AND dt.categoria_ia = 'nota_servico'
+          )
     """
-    try: oss = executar_query_dict(query_os)
-    except Exception: oss = [] 
+    try: 
+        oss = executar_query_dict(query_os)
+    except Exception: 
+        oss = [] 
         
     for os_item in oss:
         comp = os_item['ultima_tentativa'][:7] 
@@ -400,7 +407,6 @@ def get_fechamentos():
             pastas_dict[key] = {"apelido": apelido, "competencia": comp, "pasta_liberada_em": None, "documentos_json": "[]"}
         
         docs_salvos = json.loads(pastas_dict[key]['documentos_json'])
-        # Remove lixo de versões anteriores e IDs automáticos para evitar duplicados
         docs_limpos = [d for d in docs_salvos if not (d.get("isAuto") == True or str(d.get("nome", "")).startswith("OS #"))]
         
         is_validado = (str(os_item['os_verificado']) == '1') or (str(os_item['malha_verificado']) == '1')
