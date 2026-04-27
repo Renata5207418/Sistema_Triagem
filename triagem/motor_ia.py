@@ -14,28 +14,28 @@ def classificar_documento_claude(pdf_base64):
     client = Anthropic(api_key=api_key)
     MODELO = "claude-haiku-4-5-20251001"
 
+    # PROMPT BLINDADO: Sem chutes. Na dúvida, manda para revisão manual.
     prompt_sistema = """
-Você é um classificador fiscal brasileiro. Analise o documento e responda APENAS com um JSON válido, sem texto adicional, sem explicações, sem markdown.
+Você é um classificador fiscal brasileiro. Analise o documento e responda APENAS com um JSON válido, sem texto adicional.
 
-CATEGORIAS DISPONÍVEIS e seus critérios:
+CATEGORIAS DISPONÍVEIS:
+- "danfe": Documento Auxiliar da Nota Fiscal Eletrônica (NF-e). B2B.
+- "fatura_consumo": Nota Fiscal de Consumidor (NFC-e), cupom fiscal, nota de balcão (gás, mercado).
+- "nota_servico": Nota Fiscal de Serviços (NFS-e).
+- "boleto": Boleto bancário, carnê, fatura de cartão de crédito.
+- "guia": Guia de recolhimento de tributos (DARF, GPS, GNRE, DAS, DAM, IPTU etc).
+- "comprovante_pagamento": Comprovante de PIX, TED, DOC ou recibo de pagamento.
+- "extrato": Extrato bancário, extrato de conta corrente.
+- "invoice_exterior": Fatura internacional, em inglês/espanhol.
+- "fatura_locacao": Fatura ou contrato de aluguel.
+- "revisao_manual": Use esta categoria se o documento for ilegível, não se encaixar em nenhuma das acima, ou se parecer conter vários tipos diferentes misturados.
 
-- "danfe": Documento Auxiliar da Nota Fiscal Eletrônica (NF-e). Contém "DANFE" ou "Documento Auxiliar da Nota Fiscal Eletrônica". Operações entre empresas (B2B).
-- "fatura_consumo": Nota Fiscal de Consumidor Eletrônica (NFC-e) ou cupom fiscal. Contém "NFC-e", "Nota Fiscal de Consumidor", "Cupom Fiscal". Vendas no varejo para consumidor final. Inclui notas de gás, combustível, mercadorias para consumo.
-- "nota_servico": Nota Fiscal de Serviços (NFS-e). Prestação de serviços. Contém CNPJ do prestador e tomador.
-- "boleto": Boleto bancário, carnê, guia de pagamento bancário com código de barras para pagamento em banco.
-- "guia": Guia de recolhimento de tributos (DARF, GPS, GNRE, DAS, DAE, ISS, IPTU, IPVA etc).
-- "comprovante_pagamento": Comprovante de pagamento, recibo, transferência bancária (PIX, TED, DOC) já realizada.
-- "extrato": Extrato bancário, extrato de conta corrente, OFX.
-- "planilhas": Planilhas, tabelas, relatórios em formato tabular.
-- "invoice_exterior": Invoice ou fatura internacional, documentos em inglês/espanhol de fornecedor estrangeiro.
-- "fatura_locacao": Fatura ou contrato de aluguel, locação de imóvel.
-
-FORMATO DE RESPOSTA OBRIGATÓRIO:
+FORMATO OBRIGATÓRIO:
 {"categoria": "nome_da_categoria", "cnpj_prestador": null, "cnpj_tomador": null}
 
-Para nota_servico, preencha os CNPJs (apenas dígitos, sem pontuação). Para todas as outras categorias, mantenha null.
-Se não conseguir classificar com certeza, use "fatura_consumo" para qualquer cupom/nota de varejo, ou "danfe" para notas fiscais entre empresas.
-NUNCA retorne categoria vazia ou fora da lista acima.
+Regras:
+1. Para "nota_servico", preencha os CNPJs apenas com números. Para as outras, use null.
+2. NUNCA tente adivinhar. Na dúvida ou se estiver ilegível, retorne "revisao_manual".
 """
 
     for tentativa in range(3):
@@ -47,50 +47,35 @@ NUNCA retorne categoria vazia ou fora da lista acima.
                 messages=[{
                     "role": "user",
                     "content": [
-                        {
-                            "type": "document",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "application/pdf",
-                                "data": pdf_base64
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": "Classifique este documento fiscal e responda APENAS com o JSON."
-                        }
+                        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_base64}},
+                        {"type": "text", "text": "Classifique este documento fiscal e responda APENAS com o JSON."}
                     ]
                 }],
                 system=prompt_sistema
             )
 
             resposta_ia = response.content[0].text.strip()
-            logging.info(f"Resposta IA [{tentativa+1}]: {resposta_ia}") 
-
-            # Tenta parse direto primeiro
+            
             try:
                 dados = json.loads(resposta_ia)
             except json.JSONDecodeError:
-                # Fallback: extrai JSON via regex
                 match = re.search(r"\{.*?\}", resposta_ia, re.DOTALL)
                 if not match:
-                    logging.warning(f"JSON não encontrado na resposta (tentativa {tentativa+1}): {resposta_ia}")
                     time.sleep(2)
                     continue
                 dados = json.loads(match.group(0))
 
-
             categoria = dados.get("categoria", "").strip().lower()
 
-            # Valida se a categoria retornada é conhecida
+            # Validação estrita
             categorias_validas = {
                 "guia", "boleto", "invoice_exterior", "fatura_consumo",
-                "comprovante_pagamento", "danfe", "extrato", "planilhas",
-                "xml", "fatura_locacao", "nota_servico"
+                "comprovante_pagamento", "danfe", "extrato", "nota_servico",
+                "fatura_locacao", "revisao_manual", "planilhas", "xml"
             }
+            
             if categoria not in categorias_validas:
-                logging.warning(f"Categoria desconhecida '{categoria}', marcando como ignorar.")
-                categoria = "ignorar"
+                categoria = "revisao_manual"
 
             return {
                 "categoria": categoria,
@@ -100,6 +85,7 @@ NUNCA retorne categoria vazia ou fora da lista acima.
 
         except Exception as e:
             logging.error(f"Erro na API Anthropic (tentativa {tentativa+1}): {e}")
-            time.sleep(2 ** tentativa)  # Backoff exponencial: 1s, 2s, 4s
+            time.sleep(2 ** tentativa) 
 
     return {"categoria": "ERRO_API", "cnpj_prestador": None, "cnpj_tomador": None}
+    

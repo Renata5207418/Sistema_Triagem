@@ -269,12 +269,28 @@ def capturar_sessao_onvio() -> dict:
     
 
 def buscar_anexos(http, ticket_id):
-    """Busca anexos tentando as rotas conhecidas."""
+    """Bate na rota exclusiva de anexos para evitar que o Onvio limite a lista (Lazy Loading)."""
+    
+    # 1. Rota direta que ignora o limite do attachmentsExpanded
+    rota_anexos = f"{URL_BASE_API}/tickets/{ticket_id}/attachments?limit=500"
+    res = http.get(rota_anexos)
+    
+    if res.status_code == 200:
+        dados = res.json()
+        # O Onvio pode retornar a lista direto ou dentro de 'items'
+        if isinstance(dados, list):
+            return dados
+        elif isinstance(dados, dict):
+            return dados.get("items", dados.get("attachments", []))
+
+    # 2. Fallback: Se a rota de anexos der erro, tenta o método antigo
     for rota in [f"{URL_BASE_API}/tickets/generic/{ticket_id}", f"{URL_BASE_API}/tickets/{ticket_id}"]:
         res = http.get(rota)
         if res.status_code == 200:
             anexos = res.json().get("attachmentsExpanded", [])
-            if anexos: return anexos
+            if anexos: 
+                return anexos
+                
     return []
 
 

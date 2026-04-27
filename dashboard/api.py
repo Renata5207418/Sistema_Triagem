@@ -8,8 +8,8 @@ import zipfile
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -573,4 +573,100 @@ def popular_checklist_inicial():
         executar_update("INSERT INTO dashboard_checklist (tarefa_nome, tipo, termo_gestta, dia_vencimento) VALUES (?, ?, ?, ?)", (nome, tipo, termo, dia))
 
 popular_checklist_inicial()
+
+
+# ==========================================
+# ROTAS DE TRATAMENTO DE ERROS E QUARENTENA
+# ==========================================
+@app.get("/api/quarentena/listar")
+def listar_documentos_quarentena():
+    """
+    Lista todos os documentos que o robô não conseguiu processar sozinho 
+    (Frankensteins, Corrompidos, Extensões Falsas ou Protegidos por Senha).
+    """
+    query = """
+        SELECT dt.id, d.id_ticket as os, d.nome_emp as empresa, dt.nome_original, 
+               dt.categoria_ia, dt.status, dt.motivo_erro, dt.pasta_destino
+        FROM documentos_triados dt
+        JOIN downloads d ON dt.id_ticket = d.id_ticket
+        WHERE dt.status IN ('ERRO', 'ATENCAO', 'PENDENTE_SENHA')
+          AND dt.categoria_ia IN ('revisao_manual', 'documento_unificado', 'ERRO', 'DESCONHECIDO')
+        ORDER BY d.id_ticket DESC
+    """
+    return executar_query_dict(query)
+
+
+@app.get("/api/quarentena/download/{doc_id}")
+def baixar_documento_quarentena(doc_id: int):
+    """
+    Busca o arquivo com problema e envia para o usuário fazer o download.
+    """
+    # Usando a coluna correta: nome_final
+    doc_info = executar_query_dict("""
+        SELECT dt.nome_final, dt.nome_original, dt.pasta_destino, d.caminho_pasta
+        FROM documentos_triados dt
+        JOIN downloads d ON dt.id_ticket = d.id_ticket
+        WHERE dt.id = ?
+    """, (doc_id,))
+
+    if not doc_info:
+        raise HTTPException(status_code=404, detail="Registro não encontrado no banco.")
+
+    info = doc_info[0]
+    
+    # Monta o caminho usando o nome_final
+    caminho_completo = Path(info['caminho_pasta']) / info['pasta_destino'] / info['nome_final']
+
+    if not caminho_completo.exists():
+        # Fallback: Tenta achar na raiz caso não esteja dentro da sub-pasta
+        caminho_alternativo = Path(info['caminho_pasta']) / info['nome_final']
+        if caminho_alternativo.exists():
+            caminho_completo = caminho_alternativo
+        else:
+            raise HTTPException(status_code=404, detail=f"Arquivo físico não encontrado em: {caminho_completo}")
+
+    return FileResponse(path=caminho_completo, filename=info['nome_original'])
+
+
+@app.post("/api/quarentena/upload-correcao/{os_id}")
+async def upload_documentos_corrigidos(
+    os_id: int, 
+    id_doc_original: int = Form(...), 
+    arquivos: List[UploadFile] = File(...)
+):
+    """
+    Recebe os PDFs separados pelo usuário, salva na pasta raiz da OS 
+    e marca o Frankenstein como resolvido para sumir da tela.
+    """
+    # 1. Acha a pasta da OS na rede
+    os_info = executar_query_dict("SELECT caminho_pasta FROM downloads WHERE id_ticket = ?", (os_id,))
+    if not os_info or not os_info[0]['caminho_pasta']:
+        raise HTTPException(status_code=404, detail="Pasta da OS não encontrada.")
+
+    pasta_os = Path(os_info[0]['caminho_pasta'])
+
+    # 2. Salva cada pedaço (novo PDF) na pasta raiz da OS
+    for upload in arquivos:
+        caminho_novo = pasta_os / upload.filename
+        
+        # Garante que não vai sobrescrever se o nome for igual
+        contador = 1
+        while caminho_novo.exists():
+            caminho_novo = pasta_os / f"parte_{contador}_{upload.filename}"
+            contador += 1
+            
+        with open(caminho_novo, "wb") as buffer:
+            import shutil
+            shutil.copyfileobj(upload.file, buffer)
+
+    # 3. Marca o "Frankenstein" ou arquivo corrompido como resolvido
+    executar_update(
+        "UPDATE documentos_triados SET status = 'RESOLVIDO_UPLOAD', motivo_erro = 'Substituído por fatias' WHERE id = ?", 
+        (id_doc_original,)    )
+
+    executar_update("DELETE FROM tickets_triados WHERE id_ticket = ?", (os_id,))
+    
+    executar_update("UPDATE downloads SET status = 'SUCESSO' WHERE id_ticket = ?", (os_id,))
+
+    return {"mensagem": f"{len(arquivos)} arquivo(s) processado(s) com sucesso!"}
 
