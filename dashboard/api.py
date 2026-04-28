@@ -333,10 +333,10 @@ def buscar_empresa_inteligente(termo: str = Query(..., min_length=1)):
             # 2. Se tiver letras, faz busca por Nome ou Apelido (Busca Parcial)
             busca_fuzzy = f"%{termo.upper()}%"
             query = """
-                SELECT codi_emp, apel_emp, nome_emp 
+                SELECT TOP 20 codi_emp, apel_emp, nome_emp 
                 FROM bethadba.geempre 
                 WHERE apel_emp LIKE ? OR nome_emp LIKE ?
-                ORDER BY apel_emp ASC LIMIT 20
+                ORDER BY apel_emp ASC 
             """
             cursor.execute(query, (busca_fuzzy, busca_fuzzy))
         
@@ -478,6 +478,7 @@ def save_fechamento(payload: dict):
         """, (cod_empresa, competencia, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         
     return {"mensagem": "Sincronizado!"}
+
 
 # ==========================================
 # ROTAS DO DASHBOARD CHECKLIST E GESTTA

@@ -353,34 +353,27 @@ export default function PrioridadeContabilPage() {
   useEffect(() => { if (modalOpen) { carregarConfigsModal(); setSearchModal(''); } }, [modalOpen]);
   useEffect(() => { setCurrentPage(1); }, [searchTerm]); 
 
-  // --- BUSCA AUTOMÁTICA DA EMPRESA (Pelo Código) ---
-  const buscarEmpresaNaDominio = async () => {
-    if (!novoCodigo.trim()) return; 
-    
-    try {
-      const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/${novoCodigo.trim()}`);
-      if (res.data && res.data.apelido !== undefined) {
-        setNovoApelido(res.data.apelido); 
-      }
-    } catch (err) {
-      console.warn("Empresa não encontrada na Domínio com este código.");
-    }
-  };
-
-  // --- FUNÇÃO QUE RODA ENQUANTO O USUÁRIO DIGITA O NOME ---
+  // --- FUNÇÃO QUE RODA ENQUANTO O USUÁRIO DIGITA (NOME OU CÓD) ---
   const handleNomeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const valor = e.target.value;
     setNovoApelido(valor);
+    setNovoCodigo(''); // Limpa o código da memória para evitar conflitos
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
-    if (valor.length >= 3) {
+    const valorLimpo = valor.trim();
+    // Verifica se o que o usuário digitou contém apenas números
+    const isNumero = /^\d+$/.test(valorLimpo);
+
+    // Nova Regra: Se for número, busca a partir de 1 caracter. Se for texto, exige 3.
+    if ((isNumero && valorLimpo.length >= 1) || (!isNumero && valorLimpo.length >= 3)) {
       setBuscando(true);
       setMostrarSugestoes(true);
       
       typingTimeoutRef.current = setTimeout(async () => {
         try {
-          const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/buscar?termo=${valor}`);
+          // Passa o valorLimpo para o backend ignorar espaços acidentais no início/fim
+          const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/buscar?termo=${valorLimpo}`);
           setSugestoes(res.data);
         } catch (err) {
           console.error("Erro ao buscar sugestões:", err);
@@ -401,31 +394,17 @@ export default function PrioridadeContabilPage() {
     setMostrarSugestoes(false);
   };
 
-  // --- BOTÃO ADICIONAR INTELIGENTE ---
+  // --- BOTÃO ADICIONAR ---
   const handleAddEmpresa = async () => {
-    let apelidoFinal = novoApelido.trim();
-
-    if (novoCodigo.trim() && !apelidoFinal) {
-       try {
-          const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/${novoCodigo.trim()}`);
-          if (res.data && res.data.apelido) {
-             apelidoFinal = res.data.apelido;
-             setNovoApelido(apelidoFinal); 
-          }
-       } catch (e) {
-          console.warn("Busca automática no botão falhou.");
-       }
-    }
-
-    if (!novoCodigo.trim() || !apelidoFinal) {
-      alert("Por favor, preencha o Código ou selecione a Empresa na lista."); 
+    if (!novoCodigo.trim() || !novoApelido.trim()) {
+      alert("Por favor, busque e selecione uma empresa na lista suspensa."); 
       return; 
     }
 
     try {
       await axios.post('http://127.0.0.1:8000/api/prioridades/config', { 
         codigo: novoCodigo.trim(), 
-        apelido: apelidoFinal.toUpperCase(),     
+        apelido: novoApelido.toUpperCase(),     
         tipo: novoTipo, 
         competencia: novoTipo === 'MENSAL' ? mesFiltro : null 
       });
@@ -543,23 +522,13 @@ export default function PrioridadeContabilPage() {
                 <p style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', marginBottom: '10px', textTransform: 'uppercase' }}>Cadastrar Nova Empresa</p>
                 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
-                  <input 
-                    type="text" 
-                    className="standard-input" 
-                    placeholder="Cód" 
-                    value={novoCodigo} 
-                    onChange={(e) => setNovoCodigo(e.target.value)} 
-                    onBlur={buscarEmpresaNaDominio} 
-                    onKeyDown={(e) => e.key === 'Enter' && buscarEmpresaNaDominio()} 
-                    style={{ minWidth: '60px', maxWidth: '60px', height: '40px', textAlign: 'center', padding: '0', flexShrink: 0 }} 
-                  />
                   
-                  {/* Container Relativo do Autocomplete */}
-                  <div style={{ flex: 1, position: 'relative', minWidth: '120px' }}>
+                  {/* Container Relativo do Autocomplete - AGORA É O ÚNICO CAMPO */}
+                  <div style={{ flex: 1, position: 'relative' }}>
                     <input 
                       type="text" 
                       className="standard-input"
-                      placeholder="Nome da Empresa..." 
+                      placeholder="Buscar Empresa por Nome ou Código..." 
                       value={novoApelido} 
                       onChange={handleNomeChange} 
                       onFocus={() => sugestoes.length > 0 && setMostrarSugestoes(true)}
@@ -611,6 +580,7 @@ export default function PrioridadeContabilPage() {
                     <option value="VITALICIA">Recorrente</option>
                     <option value="MENSAL">Só este mês</option>
                   </select>
+                  
                   <button 
                     onClick={handleAddEmpresa} 
                     style={{ height: '40px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
