@@ -15,7 +15,7 @@ class ResilienciaDB:
         self._criar_tabelas()
 
     def _conectar(self):
-        return sqlite3.connect(self.db_path)
+        return sqlite3.connect(self.db_path, timeout=15.0)
 
     def _criar_tabelas(self):
         """Cria todas as tabelas necessárias para o ecossistema RPA."""

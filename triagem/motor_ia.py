@@ -14,7 +14,6 @@ def classificar_documento_claude(pdf_base64):
     client = Anthropic(api_key=api_key)
     MODELO = "claude-haiku-4-5-20251001"
 
-    # PROMPT BLINDADO: Sem chutes. Na dúvida, manda para revisão manual.
     prompt_sistema = """
 Você é um classificador fiscal brasileiro. Analise o documento e responda APENAS com um JSON válido, sem texto adicional.
 
@@ -28,6 +27,7 @@ CATEGORIAS DISPONÍVEIS:
 - "extrato": Extrato bancário, extrato de conta corrente.
 - "invoice_exterior": Fatura internacional, em inglês/espanhol.
 - "fatura_locacao": Fatura ou contrato de aluguel.
+- "nota_debito": Nota de débito, solicitação de reembolso, recibos simples ou cobranças que não sejam boletos nem notas fiscais.
 - "revisao_manual": Use esta categoria se o documento for ilegível, não se encaixar em nenhuma das acima, ou se parecer conter vários tipos diferentes misturados.
 
 FORMATO OBRIGATÓRIO:
@@ -67,11 +67,11 @@ Regras:
 
             categoria = dados.get("categoria", "").strip().lower()
 
-            # Validação estrita
+            # Validação estrita (adicionado nota_debito)
             categorias_validas = {
                 "guia", "boleto", "invoice_exterior", "fatura_consumo",
                 "comprovante_pagamento", "danfe", "extrato", "nota_servico",
-                "fatura_locacao", "revisao_manual", "planilhas", "xml"
+                "fatura_locacao", "revisao_manual", "planilhas", "xml", "nota_debito"
             }
             
             if categoria not in categorias_validas:
@@ -88,4 +88,3 @@ Regras:
             time.sleep(2 ** tentativa) 
 
     return {"categoria": "ERRO_API", "cnpj_prestador": None, "cnpj_tomador": None}
-    

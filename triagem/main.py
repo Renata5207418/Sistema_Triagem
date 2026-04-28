@@ -37,7 +37,8 @@ MAPA_PASTAS = {
     'planilhas': 'PLANILHAS',
     'xml': 'XML',
     'fatura_locacao': 'FATURAS',
-    'revisao_manual': 'REVISAO_MANUAL'
+    'revisao_manual': 'REVISAO_MANUAL',
+    'nota_debito': 'DOCUMENTOS GERAIS' 
 }
 
 # ==========================================
@@ -83,8 +84,8 @@ def analisar_documento_misto(doc) -> str:
         tipos_unicos = set(tipos)
         if "desconhecido" in tipos_unicos and len(tipos_unicos) > 1: tipos_unicos.remove("desconhecido")
         
+        # Ignora falsos positivos de boletos/guias dentro de um extrato bancário
         if "extrato" in tipos_unicos:
-            # Remove falsos positivos comuns em extratos
             for falso_positivo in ["boleto", "guia"]:
                 if falso_positivo in tipos_unicos:
                     tipos_unicos.remove(falso_positivo)
@@ -122,10 +123,9 @@ def limpar_pastas_vazias(pasta_raiz: Path):
 
 
 def detectar_tipo_real(caminho_arquivo: Path):
-    """Identifica o tipo de arquivo pelos Magic Bytes (DNA)."""
     SIGNATURES = {
         b'%PDF': ('.pdf', 'PDF'),
-        b'PK\x03\x04': ('.zip', 'COMPACTADOS'), # Também identifica .xlsx e .docx
+        b'PK\x03\x04': ('.zip', 'COMPACTADOS'), 
         b'Rar!\x1a\x07': ('.rar', 'COMPACTADOS'),
         b'\xff\xd8\xff': ('.jpg', 'IMAGEM_PRINT'),
         b'\x89PNG': ('.png', 'IMAGEM_PRINT'),
@@ -136,10 +136,14 @@ def detectar_tipo_real(caminho_arquivo: Path):
     try:
         with open(caminho_arquivo, 'rb') as f:
             header = f.read(8)
+            
+        ext_original = caminho_arquivo.suffix.lower()
+            
         for sig, (ext, cat) in SIGNATURES.items():
             if header.startswith(sig):
-                # Caso especial: XLSX/DOCX começam com PK igual ao ZIP
-                # Mas para a triagem contábil, se não extraiu, tratamos como compactado/erro
+                # BLINDAGEM DO DOCX/XLSX: Impede que o Word vire ZIP
+                if sig == b'PK\x03\x04' and ext_original in ['.docx', '.xlsx', '.pptx']:
+                    return None, None
                 return ext, cat
     except:
         pass
@@ -154,10 +158,14 @@ def separar_nao_pdfs(pasta_ticket: Path, id_ticket: int):
         '.docx': 'DOCUMENTOS GERAIS'
     }
 
-    pastas_seguras = ['NOTAS_DE_SERVICO', 'DOCUMENTOS_UNIFICADOS', 'ERRO_PROCESSAMENTO', 'LIMITE_PAGINAS']
+    pastas_seguranca = list(MAPA_PASTAS.values()) + ['NOTAS_DE_SERVICO', 'DOCUMENTOS_UNIFICADOS', 'ERRO_PROCESSAMENTO', 'LIMITE_PAGINAS', 'COMPACTADOS', 'ERRO_EXTENSAO', 'IMAGEM_PRINT']
 
     for arquivo in list(pasta_ticket.rglob('*')):
-        if not arquivo.is_file() or any(p in arquivo.parts for p in pastas_seguras):
+        # BLINDAGEM 1 e 2: Ignora pastas, arquivos ocultos do SO e arquivos vazios (0 bytes)
+        if not arquivo.is_file() or arquivo.name.startswith('.') or arquivo.stat().st_size == 0:
+            continue
+            
+        if any(p in arquivo.parts for p in pastas_seguranca):
             continue
 
         ext_original = arquivo.suffix.lower()        
@@ -168,12 +176,11 @@ def separar_nao_pdfs(pasta_ticket: Path, id_ticket: int):
                 novo_nome = arquivo.with_suffix('.pdf')
                 arquivo.rename(novo_nome)
                 logging.info(f"Resgatado PDF: {arquivo.name} -> {novo_nome.name}")
-            continue # Deixa o PDF para o fluxo normal da IA
+            continue 
 
         if categoria_dna:
             destino = pasta_ticket / categoria_dna
             destino.mkdir(exist_ok=True)
-            # Garante a extensão correta se ela não existia
             nome_final = arquivo.name if ext_original == ext_dna else arquivo.name + ext_dna
             caminho_final = obter_nome_unico(destino, nome_final)
             shutil.move(str(arquivo), str(caminho_final))
@@ -243,92 +250,119 @@ def processar_ticket(id_ticket: int, caminho_pasta: str, qtd_esperada: int, cod_
     arquivos_encontrados = len([f for f in pasta_ticket.rglob('*') if f.is_file()])
     separar_nao_pdfs(pasta_ticket, id_ticket)
 
-    pastas_seguranca = list(MAPA_PASTAS.values()) + ['LIMITE_PAGINAS', 'ERRO_PROCESSAMENTO', 'LOW_CONFIDENCE', 'IMAGEM_PRINT', 'ERRO_EXTENSAO', 'NOTAS_DE_SERVICO', 'DOCUMENTOS_UNIFICADOS']
+    pastas_seguranca = list(MAPA_PASTAS.values()) + ['LIMITE_PAGINAS', 'ERRO_PROCESSAMENTO', 'LOW_CONFIDENCE', 'IMAGEM_PRINT', 'ERRO_EXTENSAO', 'NOTAS_DE_SERVICO', 'DOCUMENTOS_UNIFICADOS', 'COMPACTADOS']
 
-    for arquivo in list(pasta_ticket.rglob('*.pdf')):
-        if arquivo.is_file():
-            if any(p in arquivo.parts for p in pastas_seguranca): continue
+    # --- CORREÇÃO DO LINUX: LER .pdf E .PDF ---
+    pdfs = [f for f in pasta_ticket.rglob('*') if f.is_file() and f.suffix.lower() == '.pdf']
 
-            try:
-                doc = fitz.open(str(arquivo))
-                if doc.needs_pass: raise ValueError("PDF Protegido por Senha")
+    for arquivo in pdfs:
+        # BLINDAGEM 1 e 2: Ignora arquivos ocultos e vazios (0 bytes)
+        if arquivo.name.startswith('.') or arquivo.stat().st_size == 0:
+            continue
 
-                if len(doc) > 250:
-                    destino = pasta_ticket / 'LIMITE_PAGINAS'
-                    doc.close()
-                    destino.mkdir(exist_ok=True)
-                    caminho_final = obter_nome_unico(destino, arquivo.name)
-                    shutil.move(str(arquivo), str(caminho_final))
-                    db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ignorar_tamanho", "LIMITE_PAGINAS", "SUCESSO")
-                    continue
+        if any(p in arquivo.parts for p in pastas_seguranca): continue
 
-                # Pré-IA: Barra o Frankenstein
-                decisao_pre_ia = analisar_documento_misto(doc)
-                if decisao_pre_ia == "DOCUMENTOS_UNIFICADOS":
-                    destino = pasta_ticket / 'DOCUMENTOS_UNIFICADOS'
-                    destino.mkdir(exist_ok=True)
-                    novo_nome = f"DOCUMENTO_UNIFICADO_{arquivo.stem.replace(' ', '_')}{arquivo.suffix}"
-                    caminho_final = obter_nome_unico(destino, novo_nome)
-                    doc.close()
-                    shutil.move(str(arquivo), str(caminho_final))
-                    db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "documento_unificado", "DOCUMENTOS_UNIFICADOS", "ERRO", "Arquivo com múltiplos tipos. Fatiar.")
-                    continue
+        try:
+            doc = fitz.open(str(arquivo))
+            if doc.needs_pass: raise ValueError("PDF Protegido por Senha")
 
-                primeira_pag = fitz.open()
-                primeira_pag.insert_pdf(doc, from_page=0, to_page=0)
-                pdf_bytes = primeira_pag.tobytes()
-                primeira_pag.close()
+            if len(doc) > 250:
+                destino = pasta_ticket / 'LIMITE_PAGINAS'
                 doc.close()
+                destino.mkdir(exist_ok=True)
+                caminho_final = obter_nome_unico(destino, arquivo.name)
+                shutil.move(str(arquivo), str(caminho_final))
+                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ignorar_tamanho", "LIMITE_PAGINAS", "SUCESSO")
+                continue
 
-                pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+            # --- EXTRAÇÃO DO TEXTO PARA O MOTOR DE TOMADOS ---
+            texto_completo = ""
+            for pagina in doc:
+                texto_completo += pagina.get_text()
 
-                logging.info(f"Classificando visualmente [{arquivo.name}]...")
-                resultado_ia = classificar_documento_claude(pdf_base64)
-                categoria_ia = resultado_ia.get("categoria", "revisao_manual")
-
-                status_banco = "SUCESSO"
-                if categoria_ia == 'ERRO_API':
-                    status_banco = "ERRO"
-                    nome_pasta_final = "ERRO_PROCESSAMENTO"
-                elif categoria_ia == 'revisao_manual':
-                    status_banco = "ATENCAO"
-                    nome_pasta_final = "LOW_CONFIDENCE"
-                elif categoria_ia == 'nota_servico':
-                    cnpj_p = resultado_ia.get("cnpj_prestador")
-                    cnpj_t = resultado_ia.get("cnpj_tomador")
-                    if cnpj_p in cnpjs_cliente: nome_pasta_final = "NOTAS_DE_SERVICO/EMITIDAS"
-                    elif cnpj_t in cnpjs_cliente: nome_pasta_final = "NOTAS_DE_SERVICO/TOMADAS"
-                    else: nome_pasta_final = "NOTAS_DE_SERVICO/TERCEIROS"
-                else:
-                    nome_pasta_final = MAPA_PASTAS.get(categoria_ia, 'LOW_CONFIDENCE')
-                    if nome_pasta_final == 'LOW_CONFIDENCE': status_banco = "ATENCAO"
-
-                destino = Path(os.path.normpath(str(pasta_ticket / nome_pasta_final)))
-                destino.mkdir(parents=True, exist_ok=True)
-                novo_nome = f"{categoria_ia.upper()}_{arquivo.stem.replace(' ', '_')}{arquivo.suffix}"
+            # Pré-IA: Barra o Frankenstein
+            decisao_pre_ia = analisar_documento_misto(doc)
+            if decisao_pre_ia == "DOCUMENTOS_UNIFICADOS":
+                destino = pasta_ticket / 'DOCUMENTOS_UNIFICADOS'
+                destino.mkdir(exist_ok=True)
+                novo_nome = f"DOCUMENTO_UNIFICADO_{arquivo.stem.replace(' ', '_')[:80]}{arquivo.suffix}"
                 caminho_final = obter_nome_unico(destino, novo_nome)
+                doc.close()
                 shutil.move(str(arquivo), str(caminho_final))
-                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, categoria_ia, str(nome_pasta_final), status_banco)
+                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "documento_unificado", "DOCUMENTOS_UNIFICADOS", "ERRO", "Arquivo com múltiplos tipos. Fatiar.")
+                continue
 
-            # ERRO 1: Captura o corrompido que nem a IA salva
-            except fitz.FileDataError:
-                logging.error(f"Arquivo corrompido: {arquivo.name}")
-                erro_dir = pasta_ticket / 'ERRO_PROCESSAMENTO'
-                erro_dir.mkdir(exist_ok=True)
-                caminho_final = obter_nome_unico(erro_dir, arquivo.name)
-                shutil.move(str(arquivo), str(caminho_final))
-                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ERRO", "ERRO_PROCESSAMENTO", "ERRO", "Arquivo corrompido ou formato inválido.")
+            primeira_pag = fitz.open()
+            primeira_pag.insert_pdf(doc, from_page=0, to_page=0)
+            pdf_bytes = primeira_pag.tobytes()
+            primeira_pag.close()
+            doc.close()
 
-            # ERRO 2: Senhas e outros BOs
-            except Exception as e:
-                logging.error(f"Erro PDF {arquivo.name}: {e}")
-                erro_dir = pasta_ticket / 'ERRO_PROCESSAMENTO'
-                erro_dir.mkdir(exist_ok=True)
-                caminho_final = obter_nome_unico(erro_dir, arquivo.name)
-                shutil.move(str(arquivo), str(caminho_final))
-                msg_erro = "Protegido por Senha" if "Protegido" in str(e) or "pass" in str(e).lower() else str(e)
-                status_erro = "PENDENTE_SENHA" if "Senha" in msg_erro else "ERRO"
-                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ERRO", "ERRO_PROCESSAMENTO", status_erro, msg_erro)
+            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+            logging.info(f"Classificando visualmente [{arquivo.name}]...")
+            resultado_ia = classificar_documento_claude(pdf_base64)
+            categoria_ia = resultado_ia.get("categoria", "revisao_manual")
+
+            status_banco = "SUCESSO"
+            if categoria_ia == 'ERRO_API':
+                status_banco = "ERRO"
+                nome_pasta_final = "ERRO_PROCESSAMENTO"
+            elif categoria_ia == 'revisao_manual':
+                status_banco = "ATENCAO"
+                nome_pasta_final = "LOW_CONFIDENCE"
+            elif categoria_ia == 'nota_servico':
+                cnpj_p = resultado_ia.get("cnpj_prestador")
+                cnpj_t = resultado_ia.get("cnpj_tomador")
+                if cnpj_p in cnpjs_cliente: nome_pasta_final = "NOTAS_DE_SERVICO/EMITIDAS"
+                elif cnpj_t in cnpjs_cliente: nome_pasta_final = "NOTAS_DE_SERVICO/TOMADAS"
+                else: nome_pasta_final = "NOTAS_DE_SERVICO/TERCEIROS"
+            else:
+                nome_pasta_final = MAPA_PASTAS.get(categoria_ia, 'LOW_CONFIDENCE')
+                if nome_pasta_final == 'LOW_CONFIDENCE': status_banco = "ATENCAO"
+
+            destino = Path(os.path.normpath(str(pasta_ticket / nome_pasta_final)))
+            destino.mkdir(parents=True, exist_ok=True)
+            
+            # BLINDAGEM 3: Truncar nomes gigantes para evitar crash do SO (limite de 80 chars base)
+            nome_limpo = arquivo.stem.replace(' ', '_')[:80]
+            novo_nome = f"{categoria_ia.upper()}_{nome_limpo}{arquivo.suffix}"
+            caminho_final = obter_nome_unico(destino, novo_nome)
+            
+            shutil.move(str(arquivo), str(caminho_final))
+            
+            # BLINDAGEM 4: Alerta de PDF Escaneado (sem texto / imagem plana)
+            if categoria_ia == 'nota_servico' and len(texto_completo.strip()) < 50:
+                logging.warning(f"Atenção: A nota {novo_nome} parece ser escaneada. Pouco ou nenhum texto extraído.")
+            
+            # --- TEXTO SALVO NO BANCO ---
+            db.registrar_documento_triado(
+                id_ticket, 
+                arquivo.name, 
+                caminho_final.name, 
+                categoria_ia, 
+                str(nome_pasta_final), 
+                status_banco,
+                texto_extraido=texto_completo
+            )
+
+        except fitz.FileDataError:
+            logging.error(f"Arquivo corrompido: {arquivo.name}")
+            erro_dir = pasta_ticket / 'ERRO_PROCESSAMENTO'
+            erro_dir.mkdir(exist_ok=True)
+            caminho_final = obter_nome_unico(erro_dir, arquivo.name)
+            shutil.move(str(arquivo), str(caminho_final))
+            db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ERRO", "ERRO_PROCESSAMENTO", "ERRO", "Arquivo corrompido ou formato inválido.")
+
+        except Exception as e:
+            logging.error(f"Erro PDF {arquivo.name}: {e}")
+            erro_dir = pasta_ticket / 'ERRO_PROCESSAMENTO'
+            erro_dir.mkdir(exist_ok=True)
+            caminho_final = obter_nome_unico(erro_dir, arquivo.name)
+            shutil.move(str(arquivo), str(caminho_final))
+            msg_erro = "Protegido por Senha" if "Protegido" in str(e) or "pass" in str(e).lower() else str(e)
+            status_erro = "PENDENTE_SENHA" if "Senha" in msg_erro else "ERRO"
+            db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ERRO", "ERRO_PROCESSAMENTO", status_erro, msg_erro)
 
     limpar_pastas_vazias(pasta_ticket)
     if arquivos_encontrados != qtd_esperada:
@@ -341,7 +375,6 @@ def executar_triagem():
     logging.info("Iniciando Módulo de Triagem IA...")
     db._criar_tabelas()
     
-    # BÔNUS: O main agora puxa arquivos novos que caíram na OS vindos do Upload de Reprocessamento!
     pendentes = db.get_tickets_pendentes_triagem()
     if not pendentes: return
     for p in pendentes:
@@ -352,3 +385,4 @@ def executar_triagem():
 
 if __name__ == "__main__":
     executar_triagem()
+    

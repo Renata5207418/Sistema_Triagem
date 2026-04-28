@@ -560,7 +560,6 @@ def popular_checklist_inicial():
         # MANUAIS   
         ('Inicio da entrega de empresas com Prioridade Contabil', 'MANUAL', None, None),
         ('Baixa dos documentos nos sistemas - CONTA AZUL | OMIE', 'MANUAL', None, None),
-        ('Envio ISS FIXO', 'MANUAL', None, None),
         ('Envio Reinf prestados', 'MANUAL', None, None),
         ('Envio antecipado DCTFWEB - Esquadra | Talogy | LW', 'MANUAL', None, None),
         ('Revisão e envio Retenção', 'MANUAL', None, None),
