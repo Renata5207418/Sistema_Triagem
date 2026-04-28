@@ -309,17 +309,22 @@ export default function PrioridadeContabilPage() {
   const [editingApelido, setEditingApelido] = useState<string | null>(null);
   const [editTextInput, setEditTextInput] = useState('');
 
-  const carregarDados = async () => {
-    setLoading(true);
+  const carregarDados = async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
+
     try {
       const [resEmpresas, resFech] = await Promise.all([
         axios.get(`http://127.0.0.1:8000/api/prioridades?month=${mesFiltro}`),
         axios.get(`http://127.0.0.1:8000/api/fechamentos`)
       ]);
+
       setEmpresas(resEmpresas.data);
       setPastas(resFech.data);
-    } catch (error) { console.error(error); } 
-    finally { setLoading(false); }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      if (!silencioso) setLoading(false);
+    }
   };
 
   const carregarConfigsModal = async () => {
@@ -327,7 +332,18 @@ export default function PrioridadeContabilPage() {
     catch (error) { console.error(error); }
   };
 
-  useEffect(() => { document.title = 'Prioridade Contábil'; carregarDados(); }, [mesFiltro]);
+  useEffect(() => {
+    document.title = 'Prioridade Contábil';
+    carregarDados();
+
+    const intervalo = window.setInterval(() => {
+      carregarDados(true); // atualização silenciosa, sem piscar loading
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalo);
+    };
+  }, [mesFiltro]);
   useEffect(() => { if (modalOpen) { carregarConfigsModal(); setSearchModal(''); } }, [modalOpen]);
   useEffect(() => { setCurrentPage(1); }, [searchTerm]); 
 

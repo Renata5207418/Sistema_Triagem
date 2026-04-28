@@ -47,15 +47,27 @@ def normalizar_texto(texto: str) -> str:
     texto = texto.lower().strip()
     return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("utf-8")
 
+
 def detectar_tipo_pagina(texto: str) -> str:
     t = normalizar_texto(texto)
-    if "saldo anterior" in t or "lancamentos do periodo" in t or "saldo total" in t: return "extrato"
-    if "nfs-e" in t or "nota fiscal de servico" in t: return "nota_servico"
-    if "documento de arrecadacao" in t or "gnre" in t or "simples nacional" in t or ("dam" in t and "prefeitura" in t): return "guia"
-    if "linha digitavel" in t or (("codigo de barras" in t or "ficha de compensacao" in t) and "banco" in t): return "boleto"
-    if "comprovante de pagamento" in t or "comprovante pix" in t or "recibo" in t: return "comprovante"
-    if "darf" in t and "lancamentos do periodo" not in t: return "guia"
+    if "extrato consolidado" in t or "extrato de conta" in t or "saldo anterior" in t or "lancamentos do periodo" in t: 
+        return "extrato"    
+    if "linha digitavel" in t or ("ficha de compensacao" in t and "autenticacao mecanica" in t):
+        return "boleto"    
+    if "saldo anterior" in t or "lancamentos do periodo" in t or "saldo total" in t:
+        return "extrato"    
+    if "nfs-e" in t or "nota fiscal de servico" in t: 
+        return "nota_servico"    
+    if "documento de arrecadacao" in t or "gnre" in t or "simples nacional" in t or ("dam" in t and "prefeitura" in t):
+        return "guia"    
+    if "linha digitavel" in t or (("codigo de barras" in t or "ficha de compensacao" in t) and "banco" in t):
+        return "boleto"    
+    if "comprovante de pagamento" in t or "comprovante pix" in t or "recibo" in t:
+        return "comprovante"    
+    if "darf" in t and "lancamentos do periodo" not in t:
+        return "guia"    
     return "desconhecido"
+
 
 def analisar_documento_misto(doc) -> str:
     try:
@@ -71,12 +83,18 @@ def analisar_documento_misto(doc) -> str:
         tipos_unicos = set(tipos)
         if "desconhecido" in tipos_unicos and len(tipos_unicos) > 1: tipos_unicos.remove("desconhecido")
         
-        if paginas_com_texto >= 2 and len(tipos_unicos) > 1:
-            logging.info(f"Pré-IA: Frankenstein detectado. Tipos={tipos_unicos}")
+        if "extrato" in tipos_unicos:
+            # Remove falsos positivos comuns em extratos
+            for falso_positivo in ["boleto", "guia"]:
+                if falso_positivo in tipos_unicos:
+                    tipos_unicos.remove(falso_positivo)
+        
+        if len(tipos_unicos) > 1:
+            logging.info(f"Pré-IA: Frankenstein real detectado. Tipos={tipos_unicos}")
             return "DOCUMENTOS_UNIFICADOS"
+        
         return "OK"
     except Exception as e:
-        logging.warning(f"Erro na análise pré-IA: {e}")
         return "OK"
 
 # ==========================================

@@ -113,7 +113,17 @@ export default function Acompanhamento() {
       .catch(err => console.error("API Quarentena falhou", err))
   }
 
-  useEffect(() => { carregarDados() }, [])
+  useEffect(() => {
+    carregarDados();
+
+    const intervalo = window.setInterval(() => {
+      carregarDados();
+    }, 15000); // atualiza a cada 15 segundos
+
+    return () => {
+      window.clearInterval(intervalo);
+    };
+  }, []);
 
   const toggleValidacao = async (osId: number, atualVerificado: number) => {
     if (atualVerificado === 1) {

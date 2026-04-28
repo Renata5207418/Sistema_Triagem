@@ -14,9 +14,24 @@ const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, compet
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    axios.get(`http://127.0.0.1:8000/api/malha-fiscal/detalhes/${codEmpresa}/${competencia}`)
-      .then(res => { setNotas(res.data); setLoading(false); })
-      .catch(() => setLoading(false));
+    const carregarDetalhes = () => {
+      axios.get(`http://127.0.0.1:8000/api/malha-fiscal/detalhes/${codEmpresa}/${competencia}`)
+        .then(res => {
+          setNotas(res.data);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    };
+
+    carregarDetalhes();
+
+    const intervalo = window.setInterval(() => {
+      carregarDetalhes();
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalo);
+    };
   }, [codEmpresa, competencia]);
 
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando notas...</div>;
@@ -96,7 +111,17 @@ export default function MalhaFiscal() {
       .catch(err => console.error(err));
   };
 
-  useEffect(() => { carregarResumo(); }, [mesFiltro]);
+  useEffect(() => {
+    carregarResumo();
+
+    const intervalo = window.setInterval(() => {
+      carregarResumo();
+    }, 30000); // atualiza a cada 30 segundos
+
+    return () => {
+      window.clearInterval(intervalo);
+    };
+  }, [mesFiltro]);
 
   const handleSincronizar = async (codEmpresa: string) => {
     setSyncing(codEmpresa);

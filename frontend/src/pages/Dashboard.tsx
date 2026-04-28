@@ -61,7 +61,17 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => { carregarDados(); }, [mesFiltro]);
+  useEffect(() => {
+    carregarDados();
+
+    const intervalo = window.setInterval(() => {
+      carregarDados();
+    }, 30000); // atualiza a cada 30 segundos
+
+    return () => {
+      window.clearInterval(intervalo);
+    };
+  }, [mesFiltro]);
 
   const handleToggle = async (item: IChecklistItem) => {
     if (item.tipo === 'AUTO') return;
