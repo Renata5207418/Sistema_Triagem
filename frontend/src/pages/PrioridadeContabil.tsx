@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Settings, ChevronDown, ChevronUp, Trash2, CheckCircle, Circle, Plus, FolderOpen, Calendar, Power, PowerOff, X, Search, ChevronLeft, ChevronRight, Pencil, Check, Bot } from 'lucide-react';
 import DatePicker, { registerLocale } from "react-datepicker";
@@ -42,7 +42,6 @@ const formatDateTime = () => {
   const hoje = new Date();
   return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')} ${String(hoje.getHours()).padStart(2, '0')}:${String(hoje.getMinutes()).padStart(2, '0')}:${String(hoje.getSeconds()).padStart(2, '0')}`;
 };
-
 
 /* --- Componentes de Tabela -------------------------------- */
 function DocumentoRow({ doc, onChange, onRemove }: { doc: IDocumento, onChange: (d: IDocumento) => void, onRemove: () => void }) {
@@ -309,6 +308,12 @@ export default function PrioridadeContabilPage() {
   const [editingApelido, setEditingApelido] = useState<string | null>(null);
   const [editTextInput, setEditTextInput] = useState('');
 
+  // --- ESTADOS DO AUTOCOMPLETE ---
+  const [sugestoes, setSugestoes] = useState<{codigo: string, apelido: string}[]>([]);
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
+  const [buscando, setBuscando] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const carregarDados = async (silencioso = false) => {
     if (!silencioso) setLoading(true);
 
@@ -344,23 +349,56 @@ export default function PrioridadeContabilPage() {
       window.clearInterval(intervalo);
     };
   }, [mesFiltro]);
+
   useEffect(() => { if (modalOpen) { carregarConfigsModal(); setSearchModal(''); } }, [modalOpen]);
   useEffect(() => { setCurrentPage(1); }, [searchTerm]); 
 
-  // --- BUSCA AUTOMÁTICA DA EMPRESA ---
+  // --- BUSCA AUTOMÁTICA DA EMPRESA (Pelo Código) ---
   const buscarEmpresaNaDominio = async () => {
     if (!novoCodigo.trim()) return; 
     
     try {
       const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/${novoCodigo.trim()}`);
-      console.log("Retorno da API Domínio:", res.data);
-      
       if (res.data && res.data.apelido !== undefined) {
         setNovoApelido(res.data.apelido); 
       }
     } catch (err) {
       console.warn("Empresa não encontrada na Domínio com este código.");
     }
+  };
+
+  // --- FUNÇÃO QUE RODA ENQUANTO O USUÁRIO DIGITA O NOME ---
+  const handleNomeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const valor = e.target.value;
+    setNovoApelido(valor);
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    if (valor.length >= 3) {
+      setBuscando(true);
+      setMostrarSugestoes(true);
+      
+      typingTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/buscar?termo=${valor}`);
+          setSugestoes(res.data);
+        } catch (err) {
+          console.error("Erro ao buscar sugestões:", err);
+        } finally {
+          setBuscando(false);
+        }
+      }, 500);
+    } else {
+      setSugestoes([]);
+      setMostrarSugestoes(false);
+    }
+  };
+
+  // --- FUNÇÃO DE QUANDO ELE CLICA NA OPÇÃO DA LISTA ---
+  const selecionarEmpresa = (empresa: {codigo: string, apelido: string}) => {
+    setNovoCodigo(empresa.codigo);
+    setNovoApelido(empresa.apelido);
+    setMostrarSugestoes(false);
   };
 
   // --- BOTÃO ADICIONAR INTELIGENTE ---
@@ -380,7 +418,7 @@ export default function PrioridadeContabilPage() {
     }
 
     if (!novoCodigo.trim() || !apelidoFinal) {
-      alert("Por favor, preencha o Código e aguarde o Nome da empresa carregar."); 
+      alert("Por favor, preencha o Código ou selecione a Empresa na lista."); 
       return; 
     }
 
@@ -515,15 +553,56 @@ export default function PrioridadeContabilPage() {
                     onKeyDown={(e) => e.key === 'Enter' && buscarEmpresaNaDominio()} 
                     style={{ minWidth: '60px', maxWidth: '60px', height: '40px', textAlign: 'center', padding: '0', flexShrink: 0 }} 
                   />
-                  <input 
-                    type="text" 
-                    className="standard-input"
-                    placeholder="Nome da Empresa..." 
-                    value={novoApelido} 
-                    onChange={(e) => setNovoApelido(e.target.value)} 
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddEmpresa()} 
-                    style={{ flex: 1, minWidth: '120px', height: '40px', paddingLeft: '12px' }} 
-                  />
+                  
+                  {/* Container Relativo do Autocomplete */}
+                  <div style={{ flex: 1, position: 'relative', minWidth: '120px' }}>
+                    <input 
+                      type="text" 
+                      className="standard-input"
+                      placeholder="Nome da Empresa..." 
+                      value={novoApelido} 
+                      onChange={handleNomeChange} 
+                      onFocus={() => sugestoes.length > 0 && setMostrarSugestoes(true)}
+                      onBlur={() => setTimeout(() => setMostrarSugestoes(false), 200)} 
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddEmpresa()} 
+                      style={{ width: '100%', height: '40px', paddingLeft: '12px', boxSizing: 'border-box' }} 
+                    />
+
+                    {/* Lista Flutuante de Resultados */}
+                    {mostrarSugestoes && (
+                      <div style={{
+                        position: 'absolute', top: '100%', left: 0, right: 0,
+                        background: 'white', border: '1px solid #cbd5e1', borderRadius: '8px',
+                        boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 100,
+                        maxHeight: '200px', overflowY: 'auto', marginTop: '4px'
+                      }}>
+                        {buscando ? (
+                          <div style={{ padding: '10px 12px', color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>Buscando...</div>
+                        ) : sugestoes.length === 0 ? (
+                          <div style={{ padding: '10px 12px', color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>Nenhuma encontrada.</div>
+                        ) : (
+                          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                            {sugestoes.map((sug) => (
+                              <li
+                                key={sug.codigo}
+                                onClick={() => selecionarEmpresa(sug)}
+                                style={{
+                                  padding: '8px 12px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', 
+                                  display: 'flex', gap: '8px', alignItems: 'center'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                <span style={{ fontWeight: 800, color: '#64748b', fontSize: '0.75rem', background: '#e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>{sug.codigo}</span>
+                                <span style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem' }}>{sug.apelido}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <select 
                     value={novoTipo} 
                     onChange={e => setNovoTipo(e.target.value as any)} 

@@ -70,8 +70,8 @@ python orquestrador.py
 ---
 
 ## 🛡️ Propriedade Intelectual e Licença
-Este software foi desenvolvido por **Renata Boppré Scharf** para a **SCRYTA TECNOLOGIA LTDA.**
+Este software foi desenvolvido por **Renata Boppré Scharf**.
 
-**Copyright (c) 2026 SCRYTA TECNOLOGIA LTDA. Todos os direitos reservados.**
+**Copyright (c) 2026 Todos os direitos reservados.**
 
 A propriedade intelectual, código-fonte e binários associados pertencem exclusivamente à empresa, conforme a Lei do Software (Lei nº 9.609/98). É vedada a cópia ou distribuição não autorizada.

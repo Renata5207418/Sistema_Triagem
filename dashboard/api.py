@@ -206,8 +206,59 @@ def atualizar_categoria(doc_id: int, request: AtualizarCategoriaRequest):
 # ==========================================
 # ROTAS DA MALHA FISCAL 
 # ==========================================
+def sincronizar_aws_internamente(cod_empresa: str, competencia: str):
+    """Função interna para realizar o sync sem depender de chamada HTTP externa"""
+    db_dom = DatabaseConnection()
+    if not db_dom.connect(): raise Exception("Falha ao conectar na Domínio.")
+    cnpjs_grupo = db_dom.obter_cnpjs_do_grupo(cod_empresa)
+    db_dom.close()
+    
+    if not cnpjs_grupo: raise Exception("CNPJ não encontrado.")
+    notas_aws = buscar_xmls_aws(cnpjs_grupo[0], competencia)
+    
+    executar_update("DELETE FROM malha_fiscal_tomadas WHERE TRIM(CAST(cod_empresa AS TEXT)) = ? AND competencia = ?", (str(cod_empresa).strip(), competencia))
+    
+    for nota in notas_aws:
+        triabot_match = executar_query_dict("SELECT valor_contabil FROM resultados_tomados WHERE numero_documento = ? AND cpf_cnpj = ? AND id_ticket IN (SELECT id_ticket FROM downloads WHERE cod_emp = ?)", (nota['numero'], nota['cnpj'], cod_empresa))
+        status = "FALTA_NO_TRIABOT"
+        if triabot_match:
+            try: valor_triabot = float(triabot_match[0]['valor_contabil'].replace('.', '').replace(',', '.'))
+            except: valor_triabot = 0.0
+            status = "BATEU" if abs(valor_triabot - nota['valor']) <= 0.01 else "DIVERGENCIA_VALOR"
+        executar_update("INSERT INTO malha_fiscal_tomadas (cod_empresa, competencia, numero_nota, cnpj_prestador, valor_nota, status_conciliacao, origem) VALUES (?, ?, ?, ?, ?, ?, 'AWS')", (cod_empresa, competencia, nota['numero'], nota['cnpj'], nota['valor'], status))
+
+    notas_triabot = executar_query_dict("SELECT numero_documento, cpf_cnpj, valor_contabil FROM resultados_tomados WHERE id_ticket IN (SELECT id_ticket FROM downloads WHERE cod_emp = ? AND strftime('%Y-%m', ultima_tentativa) = ?)", (cod_empresa, competencia))
+    for nota_tb in notas_triabot:
+        if not executar_query_dict("SELECT id FROM malha_fiscal_tomadas WHERE cod_empresa = ? AND competencia = ? AND numero_nota = ? AND cnpj_prestador = ?", (cod_empresa, competencia, nota_tb['numero_documento'], nota_tb['cpf_cnpj'])):
+            try: v_tb = float(nota_tb['valor_contabil'].replace('.', '').replace(',', '.'))
+            except: v_tb = 0.0
+            executar_update("INSERT INTO malha_fiscal_tomadas (cod_empresa, competencia, numero_nota, cnpj_prestador, valor_nota, status_conciliacao, origem) VALUES (?, ?, ?, ?, ?, 'NOTA_FANTASMA_TRIABOT', 'TRIABOT')", (cod_empresa, competencia, nota_tb['numero_documento'], nota_tb['cpf_cnpj'], v_tb))
+
+
 @app.get("/api/malha-fiscal/resumo/{competencia}")
 def get_resumo_malha(competencia: str):
+    # 1. AUTO-SYNC: Verifica quais clientes têm tomados processados na triagem, mas ainda não estão na malha
+    query_pendentes = """
+        SELECT DISTINCT TRIM(CAST(d.cod_emp AS TEXT)) as cod_emp
+        FROM downloads d 
+        INNER JOIN documentos_triados dt ON d.id_ticket = d.id_ticket
+        WHERE strftime('%Y-%m', d.ultima_tentativa) = ? 
+          AND dt.categoria_ia LIKE '%nota%servico%'
+          AND TRIM(CAST(d.cod_emp AS TEXT)) NOT IN (
+              SELECT DISTINCT cod_empresa FROM malha_fiscal_tomadas WHERE competencia = ?
+          )
+    """
+    pendentes_de_sync = executar_query_dict(query_pendentes, (competencia, competencia))
+    
+    # Executa a sincronização silenciosa antes de carregar a tela
+    for p in pendentes_de_sync:
+        try:
+            sincronizar_aws_internamente(p['cod_emp'], competencia)
+        except Exception as e:
+            # Apenas registra o erro no terminal, não trava o carregamento da tela para o usuário
+            print(f"Erro no Auto-Sync AWS para a empresa {p['cod_emp']}: {e}")
+
+    # 2. QUERY ORIGINAL (Carrega o resumo com os dados já atualizados)
     query = """
         WITH clientes_com_tomadas AS (
             SELECT TRIM(CAST(d.cod_emp AS TEXT)) as cod_emp, d.nome_emp, COUNT(dt.id) as total_triabot_real
@@ -245,62 +296,11 @@ def get_detalhes_malha(cod_empresa: str, competencia: str):
 @app.post("/api/malha-fiscal/sincronizar/{cod_empresa}/{competencia}")
 def sincronizar_malha_cliente(cod_empresa: str, competencia: str):
     try:
-        db_dom = DatabaseConnection()
-        if not db_dom.connect(): raise Exception("Falha ao conectar na Domínio.")
-        cnpjs_grupo = db_dom.obter_cnpjs_do_grupo(cod_empresa)
-        db_dom.close()
-        
-        if not cnpjs_grupo: raise Exception("CNPJ não encontrado.")
-        notas_aws = buscar_xmls_aws(cnpjs_grupo[0], competencia)
-        
-        executar_update("DELETE FROM malha_fiscal_tomadas WHERE TRIM(CAST(cod_empresa AS TEXT)) = ? AND competencia = ?", (str(cod_empresa).strip(), competencia))
-        
-        for nota in notas_aws:
-            triabot_match = executar_query_dict("SELECT valor_contabil FROM resultados_tomados WHERE numero_documento = ? AND cpf_cnpj = ? AND id_ticket IN (SELECT id_ticket FROM downloads WHERE cod_emp = ?)", (nota['numero'], nota['cnpj'], cod_empresa))
-            status = "FALTA_NO_TRIABOT"
-            if triabot_match:
-                try: valor_triabot = float(triabot_match[0]['valor_contabil'].replace('.', '').replace(',', '.'))
-                except: valor_triabot = 0.0
-                status = "BATEU" if abs(valor_triabot - nota['valor']) <= 0.01 else "DIVERGENCIA_VALOR"
-            executar_update("INSERT INTO malha_fiscal_tomadas (cod_empresa, competencia, numero_nota, cnpj_prestador, valor_nota, status_conciliacao, origem) VALUES (?, ?, ?, ?, ?, ?, 'AWS')", (cod_empresa, competencia, nota['numero'], nota['cnpj'], nota['valor'], status))
-
-        notas_triabot = executar_query_dict("SELECT numero_documento, cpf_cnpj, valor_contabil FROM resultados_tomados WHERE id_ticket IN (SELECT id_ticket FROM downloads WHERE cod_emp = ? AND strftime('%Y-%m', ultima_tentativa) = ?)", (cod_empresa, competencia))
-        for nota_tb in notas_triabot:
-            if not executar_query_dict("SELECT id FROM malha_fiscal_tomadas WHERE cod_empresa = ? AND competencia = ? AND numero_nota = ? AND cnpj_prestador = ?", (cod_empresa, competencia, nota_tb['numero_documento'], nota_tb['cpf_cnpj'])):
-                try: v_tb = float(nota_tb['valor_contabil'].replace('.', '').replace(',', '.'))
-                except: v_tb = 0.0
-                executar_update("INSERT INTO malha_fiscal_tomadas (cod_empresa, competencia, numero_nota, cnpj_prestador, valor_nota, status_conciliacao, origem) VALUES (?, ?, ?, ?, ?, 'NOTA_FANTASMA_TRIABOT', 'TRIABOT')", (cod_empresa, competencia, nota_tb['numero_documento'], nota_tb['cpf_cnpj'], v_tb))
+        sincronizar_aws_internamente(cod_empresa, competencia)
         return {"mensagem": "Sincronização concluída."}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
-
-
-class MalhaValidacaoRequest(BaseModel):
-    usuario: str
-
-
-@app.put("/api/malha-fiscal/validar/{cod_empresa}/{competencia}")
-def validar_malha(cod_empresa: str, competencia: str, request: MalhaValidacaoRequest):
-    data_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cod_str = str(cod_empresa).strip()
-    executar_update("INSERT INTO malha_fiscal_validacao (cod_empresa, competencia, verificado, auditado_por, data_auditoria) VALUES (?, ?, 1, ?, ?) ON CONFLICT(cod_empresa, competencia) DO UPDATE SET verificado = 1, auditado_por = excluded.auditado_por, data_auditoria = excluded.data_auditoria", (cod_str, competencia, request.usuario, data_atual))
+    except Exception as e: 
+        raise HTTPException(status_code=500, detail=str(e))
     
-    row = executar_query_dict("SELECT apelido FROM empresas_config WHERE TRIM(CAST(codigo AS TEXT)) = ? OR apelido LIKE ? OR apelido LIKE ? OR apelido = ?", (cod_str, f"{cod_str}-%", f"{cod_str} - %", cod_str))
-    if row:
-        apelido_oficial = row[0]['apelido']
-        row_pasta = executar_query_dict("SELECT id FROM controle_pastas WHERE apelido = ? AND competencia = ?", (apelido_oficial, competencia))
-        if row_pasta: executar_update("UPDATE controle_pastas SET pasta_liberada_em = ?, updated_at = ? WHERE id = ?", (data_atual, data_atual, row_pasta[0]['id']))
-        else: executar_update("INSERT INTO controle_pastas (apelido, competencia, pasta_liberada_em, documentos_json, updated_at) VALUES (?, ?, ?, '[]', ?)", (apelido_oficial, competencia, data_atual, data_atual))
-    return {"mensagem": "Malha validada!"}
-
-
-@app.put("/api/malha-fiscal/desmarcar/{cod_empresa}/{competencia}")
-def desmarcar_malha(cod_empresa: str, competencia: str):
-    cod_str = str(cod_empresa).strip()
-    executar_update("UPDATE malha_fiscal_validacao SET verificado = 0 WHERE TRIM(CAST(cod_empresa AS TEXT)) = ? AND competencia = ?", (cod_str, competencia))
-    row = executar_query_dict("SELECT apelido FROM empresas_config WHERE TRIM(CAST(codigo AS TEXT)) = ? OR apelido LIKE ? OR apelido LIKE ? OR apelido = ?", (cod_str, f"{cod_str}-%", f"{cod_str} - %", cod_str))
-    if row: executar_update("UPDATE controle_pastas SET pasta_liberada_em = NULL, updated_at = datetime('now') WHERE apelido = ? AND competencia = ?", (row[0]['apelido'], competencia))
-    return {"mensagem": "Desmarcado."}
-
 
 # ==========================================
 # ROTAS DE PRIORIDADE CONTÁBIL (FECHAMENTOS)
@@ -311,28 +311,51 @@ class EmpresaConfigRequest(BaseModel):
     tipo: str 
     competencia: Optional[str] = None
 
-@app.get("/api/dominio/empresa/{codigo}")
-def buscar_empresa_dominio(codigo: str):
+@app.get("/api/dominio/empresa/buscar")
+def buscar_empresa_inteligente(termo: str = Query(..., min_length=1)):
+    """
+    Função 2 em 1:
+    - Se for número: busca exata pelo código.
+    - Se for texto: busca parcial pelo nome ou apelido.
+    """
     db_dom = DatabaseConnection()
     if not db_dom.connect():
         raise HTTPException(status_code=500, detail="Erro ao conectar na Domínio")
     
     try:
         cursor = db_dom.conn.cursor()
-        # Busca o apelido e o nome da empresa na tabela da Domínio
-        cursor.execute("SELECT apel_emp, nome_emp FROM bethadba.geempre WHERE codi_emp = ?", (codigo,))
-        row = cursor.fetchone()
         
-        if row:
-            apel_emp = str(row[0]).strip().upper() if row[0] else ""
-            nome_emp = str(row[1]).strip().upper() if row[1] else ""
-            
-            # Prioriza o apelido (que costuma ser mais limpo), se não tiver, usa o nome
-            nome_final = apel_emp if len(apel_emp) > 2 else nome_emp
-            
-            return {"codigo": codigo, "apelido": nome_final}
+        # 1. Verifica se o termo é apenas números (Busca por Código)
+        if termo.isdigit():
+            query = "SELECT codi_emp, apel_emp, nome_emp FROM bethadba.geempre WHERE codi_emp = ?"
+            cursor.execute(query, (termo,))
         else:
-            raise HTTPException(status_code=404, detail="Empresa não encontrada")
+            # 2. Se tiver letras, faz busca por Nome ou Apelido (Busca Parcial)
+            busca_fuzzy = f"%{termo.upper()}%"
+            query = """
+                SELECT codi_emp, apel_emp, nome_emp 
+                FROM bethadba.geempre 
+                WHERE apel_emp LIKE ? OR nome_emp LIKE ?
+                ORDER BY apel_emp ASC LIMIT 20
+            """
+            cursor.execute(query, (busca_fuzzy, busca_fuzzy))
+        
+        rows = cursor.fetchall()
+        
+        # 3. Sempre retorna uma lista (mesmo que tenha só 1 resultado)
+        resultados = []
+        for row in rows:
+            codi_emp = str(row[0]).strip()
+            apel_emp = str(row[1]).strip().upper() if row[0] else ""
+            nome_emp = str(row[2]).strip().upper() if row[1] else ""
+            
+            resultados.append({
+                "codigo": codi_emp,
+                "apelido": apel_emp if len(apel_emp) > 2 else nome_emp
+            })
+            
+        return resultados
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
