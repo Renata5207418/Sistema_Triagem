@@ -63,31 +63,51 @@ URL_BASE_API = "https://onvio.com.br/api/service-requesting/v1"
 # 1. AUXILIARES DE EXTRAÇÃO E BUSCA
 # ==========================================
 def tratar_compactados(caminho_arquivo, pasta_destino):
-    """Tenta extrair ZIP/RAR. Se falhar ou tiver senha, gera alerta txt."""
-    ext = caminho_arquivo.suffix.lower()
-    try:
-        if ext == ".zip":
-            with zipfile.ZipFile(caminho_arquivo, 'r') as z:
-                if z.testzip() is not None:
-                    raise Exception("Arquivo ZIP corrompido.")
-                z.extractall(pasta_destino)
+    """Extrai ZIP/RAR recursivamente (Efeito Matrioska)."""
+    teve_erro = False
+    msg_erro = ""
+    
+    # Fila de arquivos para processar
+    compactados_pendentes = [caminho_arquivo]
+    
+    while compactados_pendentes:
+        arq_atual = compactados_pendentes.pop(0)
+        ext = arq_atual.suffix.lower()
         
-        elif ext == ".rar":
-            with rarfile.RarFile(caminho_arquivo, 'r') as r:
-                if r.needs_password():
-                    raise Exception("Arquivo RAR protegido por senha.")
-                r.extractall(pasta_destino)
-        
-        # Se chegou aqui sem erro, apaga o compactado
-        caminho_arquivo.unlink()
-        return True, ""
-    except Exception as e:
-        erro_msg = str(e)
-        logging.warning(f"Erro em {caminho_arquivo.name}: {erro_msg}")
-        aviso = pasta_destino / "!!!_ERRO_NA_EXTRACAO_!!!.txt"
-        with open(aviso, "w", encoding="utf-8") as f:
-            f.write(f"Arquivo: {caminho_arquivo.name}\nErro: {erro_msg}\nVerifique manualmente.")
-        return False, erro_msg
+        try:
+            if ext == ".zip":
+                with zipfile.ZipFile(arq_atual, 'r') as z:
+                    if z.testzip() is not None:
+                        raise Exception("Arquivo ZIP corrompido.")
+                    z.extractall(pasta_destino)
+            
+            elif ext == ".rar":
+                with rarfile.RarFile(arq_atual, 'r') as r:
+                    if r.needs_password():
+                        raise Exception("Arquivo RAR protegido por senha.")
+                    r.extractall(pasta_destino)
+            
+            # Se extraiu com sucesso, apaga o ZIP/RAR (a "casca")
+            if arq_atual.exists():
+                arq_atual.unlink()
+            
+            # Varre a pasta novamente para ver se surgiram NOVOS arquivos compactados de dentro do anterior
+            for f in pasta_destino.rglob('*'):
+                if f.is_file() and f.suffix.lower() in ['.zip', '.rar']:
+                    # Se achou um novo e ele ainda não está na fila, adiciona para a próxima rodada
+                    if f not in compactados_pendentes:
+                        compactados_pendentes.append(f)
+
+        except Exception as e:
+            erro_msg = str(e)
+            logging.warning(f"Erro em {arq_atual.name}: {erro_msg}")
+            aviso = pasta_destino / f"!!!_ERRO_NA_EXTRACAO_{arq_atual.name}_!!!.txt"
+            with open(aviso, "w", encoding="utf-8") as f:
+                f.write(f"Arquivo: {arq_atual.name}\nErro: {erro_msg}\nVerifique manualmente.")
+            teve_erro = True
+            msg_erro = erro_msg
+
+    return not teve_erro, msg_erro
 
 
 def descobrir_codigo_empresa(nome_onvio, mapa_empresas):
@@ -362,10 +382,9 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
         )
         return True
     
-    # 🚀 TRAVA DE TESTE: Baixa apenas os últimos 5 arquivos
-    anexos_para_baixar = anexos[-5:]
+    anexos_para_baixar = anexos
     if len(anexos) > 5:
-        logging.info(f"Ticket [{num_ticket}]: Limitando download para os últimos {len(anexos_para_baixar)} arquivos de {len(anexos)}.")
+        logging.info(f"Ticket [{num_ticket}]: Download {len(anexos_para_baixar)} arquivos de {len(anexos)}.")
 
     # Tem anexo cria a pasta!
     pasta_ticket = PASTA_RAIZ / f"{cod_emp} - {nome_pasta_cliente}" / pasta_periodo / str(num_ticket)
@@ -413,9 +432,6 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
     return status_final == "SUCESSO"
 
 
-# ==========================================
-# 4. ORQUESTRAÇÃO
-# ==========================================
 # ==========================================
 # 4. ORQUESTRAÇÃO
 # ==========================================

@@ -86,8 +86,20 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def authenticate_user(email_as_username: str, password: str):
     user_doc = db.get_user_by_email(email_as_username)
-    if not user_doc or not verify_password(password, user_doc["hashed_password"]):
-        return False
+
+    if not user_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este e-mail ainda não possui cadastro. Crie sua conta para acessar o sistema."
+        )
+
+    if not verify_password(password, user_doc["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário ou senha incorretos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user_doc
 
 
@@ -104,17 +116,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 @router.post("/token", response_model=Token, summary="Obter token (login)")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário ou senha incorretos",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user["username"]},
         expires_delta=access_token_expires
     )
+
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -144,7 +152,10 @@ async def forgot_password(payload: dict):
     user = db.get_user_by_email(email)
     
     if not user:
-        raise HTTPException(status_code=404, detail="E-mail não encontrado.")
+        raise HTTPException(
+            status_code=404,
+            detail="Este e-mail não possui cadastro. Crie sua conta antes de solicitar a recuperação de senha."
+        )
 
     token = create_access_token(data={"sub": user["username"]}, expires_delta=timedelta(minutes=15))
     reset_link = f"http://localhost:5173/reset-password?token={token}"

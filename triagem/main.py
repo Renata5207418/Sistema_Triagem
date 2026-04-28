@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import mimetypes
 import shutil
 import fitz
 import io
@@ -101,36 +102,86 @@ def limpar_pastas_vazias(pasta_raiz: Path):
                 try: dir_path.rmdir()
                 except OSError: pass
 
-def separar_nao_pdfs(pasta_ticket: Path, id_ticket: int):
-    regras = {'.csv': 'PLANILHAS', '.xls': 'PLANILHAS', '.xlsx': 'PLANILHAS', '.png': 'IMAGEM_PRINT', '.jpg': 'IMAGEM_PRINT', '.jpeg': 'IMAGEM_PRINT', '.xml': 'XML', '.ofx': 'EXTRATO', '.doc': 'DOCUMENTOS GERAIS', '.docx': 'DOCUMENTOS GERAIS'}
-    for arquivo in list(pasta_ticket.rglob('*')):
-        if arquivo.is_file():
-            ext = arquivo.suffix.lower()
-            if ext == '.pdf': continue
 
-            if ext in regras:
-                nome_pasta = regras[ext]
-                destino = pasta_ticket / nome_pasta
-                destino.mkdir(exist_ok=True)
-                caminho_final = obter_nome_unico(destino, arquivo.name)
-                shutil.move(str(arquivo), str(caminho_final))
-                db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, ext.replace('.', '').upper(), nome_pasta, "SUCESSO", "")
-            else:
-                # Tenta resgatar o arquivo com extensão falsa (ex: nota.03)
-                try:
-                    doc = fitz.open(str(arquivo))
-                    doc.close()
-                    novo_nome_pdf = arquivo.with_suffix('.pdf')
-                    arquivo.rename(novo_nome_pdf)
-                    logging.info(f"Arquivo resgatado: {arquivo.name} renomeado para {novo_nome_pdf.name}")
-                    continue 
-                except fitz.FileDataError:
-                    nome_pasta = 'ERRO_EXTENSAO'
-                    destino = pasta_ticket / nome_pasta
-                    destino.mkdir(exist_ok=True)
-                    caminho_final = obter_nome_unico(destino, arquivo.name)
-                    shutil.move(str(arquivo), str(caminho_final))
-                    db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "DESCONHECIDO", nome_pasta, "ERRO", f"Extensão estranha: {ext}")
+def detectar_tipo_real(caminho_arquivo: Path):
+    """Identifica o tipo de arquivo pelos Magic Bytes (DNA)."""
+    SIGNATURES = {
+        b'%PDF': ('.pdf', 'PDF'),
+        b'PK\x03\x04': ('.zip', 'COMPACTADOS'), # Também identifica .xlsx e .docx
+        b'Rar!\x1a\x07': ('.rar', 'COMPACTADOS'),
+        b'\xff\xd8\xff': ('.jpg', 'IMAGEM_PRINT'),
+        b'\x89PNG': ('.png', 'IMAGEM_PRINT'),
+        b'\xd0\xcf\x11\xe0': ('.xls', 'PLANILHAS'),
+        b'<?xml': ('.xml', 'XML'),
+    }
+
+    try:
+        with open(caminho_arquivo, 'rb') as f:
+            header = f.read(8)
+        for sig, (ext, cat) in SIGNATURES.items():
+            if header.startswith(sig):
+                # Caso especial: XLSX/DOCX começam com PK igual ao ZIP
+                # Mas para a triagem contábil, se não extraiu, tratamos como compactado/erro
+                return ext, cat
+    except:
+        pass
+    return None, None
+
+
+def separar_nao_pdfs(pasta_ticket: Path, id_ticket: int):
+    regras_extensao = {
+        '.csv': 'PLANILHAS', 
+        '.ofx': 'EXTRATO', 
+        '.doc': 'DOCUMENTOS GERAIS', 
+        '.docx': 'DOCUMENTOS GERAIS'
+    }
+
+    pastas_seguras = ['NOTAS_DE_SERVICO', 'DOCUMENTOS_UNIFICADOS', 'ERRO_PROCESSAMENTO', 'LIMITE_PAGINAS']
+
+    for arquivo in list(pasta_ticket.rglob('*')):
+        if not arquivo.is_file() or any(p in arquivo.parts for p in pastas_seguras):
+            continue
+
+        ext_original = arquivo.suffix.lower()        
+        ext_dna, categoria_dna = detectar_tipo_real(arquivo)
+
+        if ext_dna == '.pdf':
+            if ext_original != '.pdf':
+                novo_nome = arquivo.with_suffix('.pdf')
+                arquivo.rename(novo_nome)
+                logging.info(f"Resgatado PDF: {arquivo.name} -> {novo_nome.name}")
+            continue # Deixa o PDF para o fluxo normal da IA
+
+        if categoria_dna:
+            destino = pasta_ticket / categoria_dna
+            destino.mkdir(exist_ok=True)
+            # Garante a extensão correta se ela não existia
+            nome_final = arquivo.name if ext_original == ext_dna else arquivo.name + ext_dna
+            caminho_final = obter_nome_unico(destino, nome_final)
+            shutil.move(str(arquivo), str(caminho_final))
+            db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, ext_dna.replace('.','').upper(), categoria_dna, "SUCESSO")
+            logging.info(f"Movido por DNA: {arquivo.name} -> {categoria_dna}")
+            continue
+
+        if ext_original in regras_extensao:
+            nome_pasta = regras_extensao[ext_original]
+            destino = pasta_ticket / nome_pasta
+            destino.mkdir(exist_ok=True)
+            caminho_final = obter_nome_unico(destino, arquivo.name)
+            shutil.move(str(arquivo), str(caminho_final))
+            db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, ext_original.replace('.','').upper(), nome_pasta, "SUCESSO")
+            continue
+
+        if ext_original == '.pdf':
+            continue
+
+        nome_pasta = 'ERRO_EXTENSAO'
+        destino = pasta_ticket / nome_pasta
+        destino.mkdir(exist_ok=True)
+        caminho_final = obter_nome_unico(destino, arquivo.name)
+        shutil.move(str(arquivo), str(caminho_final))
+        db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "DESCONHECIDO", nome_pasta, "ERRO", f"DNA não identificado. Extensão: {ext_original}")
+
 
 def mover_cliente_rede(id_ticket: int, pasta_ticket: Path, cod_emp: str):
     if not cod_emp or cod_emp == "0": return
