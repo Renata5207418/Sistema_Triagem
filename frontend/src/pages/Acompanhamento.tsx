@@ -370,7 +370,7 @@ export default function Acompanhamento() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <AlertTriangle size={16} color="#ef4444" />
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase' }}>{doc.categoria_ia === 'documento_unificado' ? 'Frankenstein Detectado' : doc.motivo_erro || 'Erro Desconhecido'}</span>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase' }}>{doc.categoria_ia === 'documento_unificado' ? 'MÚLTIPLOS TIPOS IDENTIFICADOS' : doc.motivo_erro || 'Erro Desconhecido'}</span>
                         <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Ação humana necessária</span>
                       </div>
                     </div>
