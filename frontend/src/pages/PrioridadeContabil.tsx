@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { Settings, ChevronDown, ChevronUp, Trash2, CheckCircle, Circle, Plus, FolderOpen, Calendar, Power, PowerOff, X, Search, ChevronLeft, ChevronRight, Pencil, Check, Bot } from 'lucide-react';
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -319,8 +319,8 @@ export default function PrioridadeContabilPage() {
 
     try {
       const [resEmpresas, resFech] = await Promise.all([
-        axios.get(`http://127.0.0.1:8000/api/prioridades?month=${mesFiltro}`),
-        axios.get(`http://127.0.0.1:8000/api/fechamentos`)
+        api.get(`/api/prioridades?month=${mesFiltro}`),
+        api.get(`/api/fechamentos`)
       ]);
 
       setEmpresas(resEmpresas.data);
@@ -333,7 +333,7 @@ export default function PrioridadeContabilPage() {
   };
 
   const carregarConfigsModal = async () => {
-    try { const res = await axios.get('http://127.0.0.1:8000/api/prioridades/config'); setTodasConfigs(res.data); } 
+    try { const res = await api.get('/api/prioridades/config'); setTodasConfigs(res.data); } 
     catch (error) { console.error(error); }
   };
 
@@ -373,7 +373,7 @@ export default function PrioridadeContabilPage() {
       typingTimeoutRef.current = setTimeout(async () => {
         try {
           // Passa o valorLimpo para o backend ignorar espaços acidentais no início/fim
-          const res = await axios.get(`http://127.0.0.1:8000/api/dominio/empresa/buscar?termo=${valorLimpo}`);
+          const res = await api.get(`/api/dominio/empresa/buscar?termo=${valorLimpo}`);
           setSugestoes(res.data);
         } catch (err) {
           console.error("Erro ao buscar sugestões:", err);
@@ -402,7 +402,7 @@ export default function PrioridadeContabilPage() {
     }
 
     try {
-      await axios.post('http://127.0.0.1:8000/api/prioridades/config', { 
+      await api.post('/api/prioridades/config', { 
         codigo: novoCodigo.trim(), 
         apelido: novoApelido.toUpperCase(),     
         tipo: novoTipo, 
@@ -419,20 +419,20 @@ export default function PrioridadeContabilPage() {
   };
 
   const handleToggleAtiva = async (apelido: string) => {
-    try { await axios.put(`http://127.0.0.1:8000/api/prioridades/config/${encodeURIComponent(apelido)}/toggle`); carregarConfigsModal(); carregarDados(); } 
+    try { await api.put(`/api/prioridades/config/${encodeURIComponent(apelido)}/toggle`); carregarConfigsModal(); carregarDados(); } 
     catch (err) { console.error(err); }
   };
 
   const handleDeleteEmpresa = async (apelido: string) => {
     if (!window.confirm(`Tem certeza que deseja excluir ${apelido}? O histórico será mantido.`)) return;
-    try { await axios.delete(`http://127.0.0.1:8000/api/prioridades/config/${encodeURIComponent(apelido)}`); carregarConfigsModal(); carregarDados(); } 
+    try { await api.delete(`/api/prioridades/config/${encodeURIComponent(apelido)}`); carregarConfigsModal(); carregarDados(); } 
     catch (err) { console.error(err); }
   };
 
   const handleRenameEmpresa = async (oldApelido: string) => {
     if (!editTextInput.trim() || editTextInput === oldApelido) { setEditingApelido(null); return; }
     try {
-        await axios.put(`http://127.0.0.1:8000/api/prioridades/config/${encodeURIComponent(oldApelido)}/renomear`, { novo_apelido: editTextInput });
+        await api.put(`/api/prioridades/config/${encodeURIComponent(oldApelido)}/renomear`, { novo_apelido: editTextInput });
         setEditingApelido(null);
         carregarConfigsModal();
         carregarDados();
@@ -441,7 +441,7 @@ export default function PrioridadeContabilPage() {
 
   const handleUpdatePasta = async (updatedPasta: IPasta) => {
     try {
-      await axios.post('http://127.0.0.1:8000/api/fechamentos', updatedPasta);
+      await api.post('/api/fechamentos', updatedPasta);
       carregarDados();
     } catch (err) { console.error(err); }
   };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { AlertTriangle, CheckCircle, Calendar, ChevronDown, ChevronUp, RefreshCw, Circle, UserCheck } from 'lucide-react';
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -15,7 +15,7 @@ const DetalhesNotas = ({ codEmpresa, competencia }: { codEmpresa: string, compet
 
   useEffect(() => {
     const carregarDetalhes = () => {
-      axios.get(`http://127.0.0.1:8000/api/malha-fiscal/detalhes/${codEmpresa}/${competencia}`)
+      api.get(`/api/malha-fiscal/detalhes/${codEmpresa}/${competencia}`)
         .then(res => {
           setNotas(res.data);
           setLoading(false);
@@ -106,7 +106,7 @@ export default function MalhaFiscal() {
   };
 
   const carregarResumo = () => {
-    axios.get(`http://127.0.0.1:8000/api/malha-fiscal/resumo/${mesFiltro}`)
+    api.get(`/api/malha-fiscal/resumo/${mesFiltro}`)
       .then(res => setClientes(res.data))
       .catch(err => console.error(err));
   };
@@ -126,7 +126,7 @@ export default function MalhaFiscal() {
   const handleSincronizar = async (codEmpresa: string) => {
     setSyncing(codEmpresa);
     try {
-      await axios.post(`http://127.0.0.1:8000/api/malha-fiscal/sincronizar/${codEmpresa}/${mesFiltro}`);
+      await api.post(`/api/malha-fiscal/sincronizar/${codEmpresa}/${mesFiltro}`);
       showToast('Sincronização com AWS concluída!', 'success');
       carregarResumo();
       if (expandedCliente === codEmpresa) setExpandedCliente(null); 
@@ -148,9 +148,9 @@ export default function MalhaFiscal() {
       const isVerificado = Number(atualVerificado) === 1;
       
       if (isVerificado) {
-        await axios.put(`http://127.0.0.1:8000/api/malha-fiscal/desmarcar/${codEmpresa}/${mesFiltro}`);
+        await api.put(`api/malha-fiscal/desmarcar/${codEmpresa}/${mesFiltro}`);
       } else {
-        await axios.put(`http://127.0.0.1:8000/api/malha-fiscal/validar/${codEmpresa}/${mesFiltro}`, {
+        await api.put(`/api/malha-fiscal/validar/${codEmpresa}/${mesFiltro}`, {
           usuario: user?.full_name || 'Sistema'
         });
       }      

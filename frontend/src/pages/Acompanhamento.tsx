@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import axios from 'axios'
+import api from '../services/api';
 import { Download, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, CheckCircle, Circle, FileText, Calendar, UserCheck, AlertTriangle, UploadCloud, X, Upload } from 'lucide-react'
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -103,12 +103,12 @@ export default function Acompanhamento() {
 
   const carregarDados = () => {
     // Carrega a Auditoria normal
-    axios.get('http://127.0.0.1:8000/api/triagem/auditoria')
+    api.get('/api/triagem/auditoria')
       .then(res => setDocumentosFlat(res.data))
       .catch(err => console.error("API falhou", err))
       
     // Carrega a Quarentena
-    axios.get('http://127.0.0.1:8000/api/quarentena/listar')
+    api.get('/api/quarentena/listar')
       .then(res => setQuarentenaDocs(res.data))
       .catch(err => console.error("API Quarentena falhou", err))
   }
@@ -128,12 +128,12 @@ export default function Acompanhamento() {
   const toggleValidacao = async (osId: number, atualVerificado: number) => {
     if (atualVerificado === 1) {
       try {
-        await axios.put(`http://127.0.0.1:8000/api/os/${osId}/desmarcar`);
+        await api.put(`/api/os/${osId}/desmarcar`);
         carregarDados();
       } catch (err) { alert("Erro ao desmarcar OS."); }
     } else {
       try {
-        await axios.put(`http://127.0.0.1:8000/api/os/${osId}/verificar`, { usuario: user?.full_name || 'Sistema' });
+        await api.put(`/api/os/${osId}/verificar`, { usuario: user?.full_name || 'Sistema' });
         carregarDados();
       } catch (err) { alert("Erro ao validar OS."); }
     }
@@ -153,7 +153,7 @@ export default function Acompanhamento() {
     });
 
     try {
-      await axios.post(`http://127.0.0.1:8000/api/quarentena/upload-correcao/${docToFix.os}`, formData, {
+      await api.post(`/api/quarentena/upload-correcao/${docToFix.os}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setModalUploadOpen(false);
@@ -378,7 +378,7 @@ export default function Acompanhamento() {
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                       <button 
-                        onClick={() => window.open(`http://127.0.0.1:8000/api/quarentena/download/${doc.id}`, '_blank')}
+                        onClick={() => window.open(`${api.defaults.baseURL}api/quarentena/download/${doc.id}`, '_blank')}
                         title="Baixar para fatiar"
                         className="action-btn-outline" style={{ borderColor: '#3b82f6', color: '#3b82f6', background: '#eff6ff' }}
                       >
@@ -439,7 +439,7 @@ export default function Acompanhamento() {
                       {grupo.status_triagem_geral === 'N/A' ? <span style={{ display: 'inline-flex', padding: '4px 12px', borderRadius: '8px', background: '#f1f5f9', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700 }}>N/A</span> : <span className={`status-pill ${grupo.status_triagem_geral === 'SUCESSO' ? 'sucesso' : 'erro'}`}>{grupo.status_triagem_geral}</span>}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      {grupo.status_tomados_geral === 'CONCLUIDO' ? <a href={`http://127.0.0.1:8000/api/download/tomados/${grupo.os}`} title="Baixar planilhas (.zip)" className="action-btn-outline" style={{ textDecoration: 'none' }}><Download size={14} /> Planilhas</a> : grupo.status_tomados_geral === 'PROCESSANDO' ? <span className="status-badge status-pendente">Na Fila</span> : <span style={{ display: 'inline-flex', padding: '4px 12px', borderRadius: '8px', background: '#f1f5f9', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700 }}>N/A</span>}
+                      {grupo.status_tomados_geral === 'CONCLUIDO' ? <a href={`${api.defaults.baseURL}/api/download/tomados/${grupo.os}`} title="Baixar planilhas (.zip)" className="action-btn-outline" style={{ textDecoration: 'none' }}><Download size={14} /> Planilhas</a> : grupo.status_tomados_geral === 'PROCESSANDO' ? <span className="status-badge status-pendente">Na Fila</span> : <span style={{ display: 'inline-flex', padding: '4px 12px', borderRadius: '8px', background: '#f1f5f9', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700 }}>N/A</span>}
                     </td>                  
                   </tr>
                   {expandedOS === grupo.os && <tr key={`child-${grupo.os}`}><td colSpan={8} style={{ padding: 0 }}><SubTable arquivos={grupo.arquivos} /></td></tr>}

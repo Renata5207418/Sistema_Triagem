@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { FileSearch, HardDrive, Building2, CheckCircle2, Circle, Bot, Activity, Calendar, Trophy, ListTodo, PieChart, Info } from 'lucide-react';
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -51,8 +51,8 @@ export default function Dashboard() {
   const carregarDados = async () => {
     try {
       const [resResumo, resCheck] = await Promise.all([
-        axios.get(`http://127.0.0.1:8000/api/resumo?month=${mesFiltro}`), 
-        axios.get(`http://127.0.0.1:8000/api/dashboard/checklist?month=${mesFiltro}`)
+        api.get(`/api/resumo?month=${mesFiltro}`), 
+        api.get(`/api/dashboard/checklist?month=${mesFiltro}`)
       ]);
       setResumo(resResumo.data);
       setChecklist(resCheck.data);
@@ -77,7 +77,7 @@ export default function Dashboard() {
     if (item.tipo === 'AUTO') return;
     const novoStatus = item.status_manual === 1 ? 0 : 1;
     try {
-      await axios.put(`http://127.0.0.1:8000/api/dashboard/checklist/${item.id}/toggle`, { 
+      await api.put(`/api/dashboard/checklist/${item.id}/toggle`, { 
         status: novoStatus, 
         month: mesFiltro,
         usuario: user?.full_name || 'Usuário' 
