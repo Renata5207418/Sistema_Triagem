@@ -14,6 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from aws_service import buscar_xmls_aws
+import logging
+from logging.handlers import TimedRotatingFileHandler
+
 
 RAIZ_PROJETO = Path(__file__).parent.parent
 sys.path.append(str(RAIZ_PROJETO))
@@ -34,6 +37,34 @@ app.add_middleware(
 app.include_router(auth.router)
 
 DB_PATH = RAIZ_PROJETO / "banco_rpa.db"
+
+
+# ==========================================
+# CONFIGURAÇÃO DE LOGS DA API
+# ==========================================
+pasta_logs = RAIZ_PROJETO / "logs"
+pasta_logs.mkdir(exist_ok=True)
+
+arquivo_log_api = pasta_logs / "api_backend.log"
+
+file_handler_api = TimedRotatingFileHandler(
+    filename=arquivo_log_api,
+    when="midnight",
+    interval=1,
+    backupCount=30,
+    encoding='utf-8'
+)
+file_handler_api.suffix = "%Y-%m-%d.log"
+
+console_handler_api = logging.StreamHandler(sys.stdout)
+
+# Configura o logger global da API
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] API: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[file_handler_api, console_handler_api]
+)
 
 class VerificacaoRequest(BaseModel): 
     usuario: str
@@ -72,8 +103,16 @@ def baixar_tomados_zip(os_id: int):
     if not registros: raise HTTPException(status_code=404, detail="Nenhum dado encontrado.")
 
     df = pd.DataFrame(registros)
-    colunas_dominio = ['cpf_cnpj', 'razao_social', 'uf', 'municipio', 'endereco', 'numero_documento', 'serie', 'data_emissao', 'situacao', 'acumulador', 'cfop', 'valor_servicos', 'valor_descontos', 'valor_contabil', 'base_calculo', 'alq_iss', 'valor_iss_normal', 'valor_iss_retido', 'valor_irrf', 'valor_pis', 'valor_cofins', 'valor_csll', 'valor_crf', 'valor_inss', 'cod_item', 'quantidade', 'vlr_unitario', 'tomador']
-    
+    colunas_dominio = [
+        'cpf_cnpj', 'razao_social', 'uf', 'municipio', 'endereco', 
+        'numero_documento', 'serie', 'data_emissao', 'situacao', 
+        'acumulador', 'cfop', 'valor_servicos', 'valor_descontos', 
+        'valor_contabil', 'base_calculo', 'aliquota_iss', 'valor_iss_normal', 
+        'valor_iss_retido', 'valor_irrf', 'valor_pis', 'valor_cofins', 
+        'valor_csll', 'valor_crf', 'valor_inss', 'codigo_item', 
+        'quantidade', 'valor_unitario', 'tomador'
+    ]
+
     for col in colunas_dominio:
         if col not in df.columns: df[col] = ''
     df = df[colunas_dominio]
@@ -256,7 +295,7 @@ def get_resumo_malha(competencia: str):
             sincronizar_aws_internamente(p['cod_emp'], competencia)
         except Exception as e:
             # Apenas registra o erro no terminal, não trava o carregamento da tela para o usuário
-            print(f"Erro no Auto-Sync AWS para a empresa {p['cod_emp']}: {e}")
+            logging.error(f"Erro no Auto-Sync AWS para a empresa {p['cod_emp']}: {e}")
 
     # 2. QUERY ORIGINAL (Carrega o resumo com os dados já atualizados)
     query = """
@@ -357,6 +396,7 @@ def buscar_empresa_inteligente(termo: str = Query(..., min_length=1)):
         return resultados
 
     except Exception as e:
+        logging.error(f"Erro ao buscar empresa '{termo}' na Domínio: {e}") 
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db_dom.close()
@@ -497,8 +537,7 @@ def garantir_tabela_checklist_mes():
         except: pass
 garantir_tabela_checklist_mes()
 
-GESTTA_DB_PATH = "/home/usuario/PycharmProjects/APIGestta/gestta_tasks.db"
-
+GESTTA_DB_PATH = os.getenv("GESTTA_DB_PATH")
 
 def buscar_progresso_gestta_remoto(termo, dia=None, competencia=None):
     if not os.path.exists(GESTTA_DB_PATH): return {"concluidas": 0, "total": 0}

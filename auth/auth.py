@@ -15,10 +15,10 @@ from db.db_resiliencia import db
 load_dotenv()
 
 # Configurações de E-mail
-SMTP_SERVER = "smtp.office365.com" 
-SMTP_PORT = 587
-SMTP_USER = "tecnologia2@scryta.com.br"
-SMTP_PASS = os.getenv("SMTP_PASSWORD") 
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.office365.com") 
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "tecnologia2@scryta.com.br")
+SMTP_PASS = os.getenv("SMTP_PASSWORD")
 
 router = APIRouter(
     prefix="/auth",

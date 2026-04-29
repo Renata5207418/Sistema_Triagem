@@ -2,17 +2,45 @@ import multiprocessing
 import time
 import logging
 import sys
+from logging.handlers import TimedRotatingFileHandler 
 from pathlib import Path
+
 
 pasta_raiz = str(Path(__file__).parent)
 if pasta_raiz not in sys.path:
     sys.path.append(pasta_raiz)
 
+# ==========================================
+# CONFIGURAÇÃO DE LOGS (Terminal + Arquivo)
+# ==========================================
+pasta_logs = pasta_raiz / "logs"
+pasta_logs.mkdir(exist_ok=True)
+
+arquivo_log = pasta_logs / "sistema_rpa.log"
+
+# Cria um arquivo novo todo dia à meia-noite e mantém histórico de 30 dias
+file_handler = TimedRotatingFileHandler(
+    filename=arquivo_log,
+    when="midnight",     
+    interval=1,          
+    backupCount=60,      
+    encoding='utf-8'
+)
+file_handler.suffix = "%Y-%m-%d.log" 
+
+console_handler = logging.StreamHandler(sys.stdout)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(processName)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[file_handler, console_handler] 
+)
+
 from download.main import executar_download
 from triagem.main import executar_triagem
 from tomados.main import executar_tomados 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 
 # ==========================================
 # LOOPS INDIVIDUAIS DE CADA ROBÔ
