@@ -151,10 +151,10 @@ def detectar_tipo_real(caminho_arquivo: Path):
 
 
 def separar_nao_pdfs(pasta_ticket: Path, id_ticket: int):
-      regras_extensao = {
+    regras_extensao = {
         '.csv': 'PLANILHAS', 
-        '.xls': 'PLANILHAS',   
-        '.xlsx': 'PLANILHAS',  
+        '.xls': 'PLANILHAS',
+        '.xlsx': 'PLANILHAS', 
         '.ofx': 'EXTRATO', 
         '.doc': 'DOCUMENTOS GERAIS', 
         '.docx': 'DOCUMENTOS GERAIS'
