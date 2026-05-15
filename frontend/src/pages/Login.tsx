@@ -145,7 +145,7 @@ export const Login: React.FC = () => {
                       value={formData.password}
                       onChange={handleInputChange}
                       className={inputVisual}
-                      placeholder="••••••••"
+                      placeholder=""
                       required
                     />
                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="input-icon-right">

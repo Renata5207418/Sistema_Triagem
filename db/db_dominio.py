@@ -61,6 +61,47 @@ class DatabaseConnection:
         finally:
             cursor.close()
 
+
+    def descobrir_codigo_matriz(self, cod_emp: str) -> str:
+        """
+        Dada uma empresa (filial ou matriz), descobre qual é o código 
+        da matriz (final 0001) do mesmo grupo.
+        """
+        if not self.conn:
+            return cod_emp
+            
+        cursor = self.conn.cursor()
+        try:
+            # 1. Pega o CNPJ da empresa atual
+            cursor.execute("SELECT cgce_emp FROM bethadba.geempre WHERE codi_emp = ?", (cod_emp,))
+            row = cursor.fetchone()
+            
+            if not row or not row[0]:
+                return cod_emp
+                
+            cnpj_limpo = re.sub(r"\D", "", str(row[0]))
+            
+            # Se já for matriz (0001), retorna ela mesma
+            if cnpj_limpo.endswith("0001"):
+                return cod_emp
+            
+            # 2. Se for filial, busca quem é a matriz (mesmo radical + 0001)
+            radical = cnpj_limpo[:8]
+            query_matriz = "SELECT codi_emp FROM bethadba.geempre WHERE cgce_emp LIKE ? AND cgce_emp LIKE '%0001%'"
+            cursor.execute(query_matriz, (f"{radical}%",))
+            row_matriz = cursor.fetchone()
+            
+            if row_matriz:
+                return str(row_matriz[0])
+            
+            return cod_emp # Fallback: se não achar matriz, usa a filial mesmo
+        except Exception as e:
+            logging.error(f"Erro ao buscar matriz para filial {cod_emp}: {e}")
+            return cod_emp
+        finally:
+            cursor.close()
+
+
     def obter_cnpjs_do_grupo(self, cod_emp: str) -> list:
         """
         Descobre o CNPJ da empresa pelo cod_emp e retorna uma lista 

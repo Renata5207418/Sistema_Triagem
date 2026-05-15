@@ -13,6 +13,7 @@ class ResilienciaDB:
             self.db_path = db_path
             
         self._criar_tabelas()
+        self.popular_checklist_inicial()
 
     def _conectar(self):
         return sqlite3.connect(self.db_path, timeout=15.0)
@@ -112,7 +113,7 @@ class ResilienciaDB:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS resultados_tomados (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    id_ticket INTEGER,           
+                    id_ticket INTEGER,            
                     id_documento INTEGER,        
                     
                     -- Campos extraídos (na ordem do layout esperado)
@@ -182,6 +183,9 @@ class ResilienciaDB:
                     data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Migração da coluna de OS na malha
+            try: conn.execute("ALTER TABLE malha_fiscal_tomadas ADD COLUMN os_onvio TEXT")
+            except sqlite3.OperationalError: pass
 
             # ==========================================
             # 7. TABELAS DE FECHAMENTO CONTÁBIL 
@@ -203,7 +207,7 @@ class ResilienciaDB:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS empresas_config (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    codigo TEXT, -- Adicione esta linha
+                    codigo TEXT, 
                     apelido TEXT UNIQUE,
                     tipo TEXT DEFAULT 'VITALICIA',
                     ativa INTEGER DEFAULT 1,
@@ -240,6 +244,92 @@ class ResilienciaDB:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # --- MUDANÇA: Adicionando a coluna 'ativa' para o Soft Delete ---
+            try: conn.execute("ALTER TABLE dashboard_checklist ADD COLUMN ativa INTEGER DEFAULT 1")
+            except sqlite3.OperationalError: pass
+            
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS checklist_mes (
+                    id_tarefa INTEGER, 
+                    competencia TEXT, 
+                    status_manual INTEGER DEFAULT 0, 
+                    usuario_conclusao TEXT, 
+                    data_conclusao TEXT, 
+                    PRIMARY KEY (id_tarefa, competencia)
+                )
+            """)
+            try: conn.execute("ALTER TABLE checklist_mes ADD COLUMN usuario_conclusao TEXT")
+            except sqlite3.OperationalError: pass
+            try: conn.execute("ALTER TABLE checklist_mes ADD COLUMN data_conclusao TEXT")
+            except sqlite3.OperationalError: pass
+
+            # ==========================================
+            # 11. ÍNDICES DE PERFORMANCE (VELOCIDADE MÁXIMA)
+            # ==========================================
+            # Cria os índices para evitar "Full Table Scans" nas consultas pesadas
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_triados_ticket ON documentos_triados(id_ticket)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_downloads_data ON downloads(ultima_tentativa)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_malha_competencia ON malha_fiscal_tomadas(competencia)")
+
+    def popular_checklist_inicial(self):
+        # 1. Tarefas Automáticas (Gestta)
+        tarefas_auto = [
+            ('ISS FIXO', 'AUTO', 'ISS FIXO', None),
+            ('ISS RPA(10)', 'AUTO', 'ISS RPA(10)', None),
+            ('ISS RPA(15)', 'AUTO', 'ISS RPA(15)', None),
+            ('ISS RPA(20)', 'AUTO', 'ISS RPA(20)', None),
+            ('ISS PRESTADOS(03)', 'AUTO', 'ISS PRESTADOS(03)', None),
+            ('ISS PRESTADOS(08)', 'AUTO', 'ISS PRESTADOS(08)', None),
+            ('ISS PRESTADOS(10)', 'AUTO', 'ISS PRESTADOS(10)', None),
+            ('ISS PRESTADOS(15)', 'AUTO', 'ISS PRESTADOS(15)', None),
+            ('ISS PRESTADOS(20)', 'AUTO', 'ISS PRESTADOS(20)', None),
+            ('ISS RETIDO(10)', 'AUTO', 'ISS RETIDO(10)', None),
+            ('ISS RETIDO(15)', 'AUTO', 'ISS RETIDO(15)', None),
+            ('ISS RETIDO(20)', 'AUTO', 'ISS RETIDO(20)', None),
+            ('IRRF 3208|ALUGUEL', 'AUTO', 'IRRF 3208|ALUGUEL', None),
+            ('REINF PRESTADOS', 'AUTO', 'REINF PRESTADOS', None),
+            ('IMPORTAÇÃO|SCRYTA', 'AUTO', 'IMPORTAÇÃO|SCRYTA', None),
+            ('CONTROLE FATOR R', 'AUTO', 'CONTROLE FATOR R', None),
+            ('CONTROLE TRIAGEM|RETENÇÕES', 'AUTO', 'CONTROLE TRIAGEM|RETENÇÕES', None),
+            ('ENCERRAMENTO COMPETÊNCIA ISS', 'AUTO', 'ENCERRAMENTO COMPETÊNCIA ISS', None),
+            ('SINTEGRA(SC)', 'AUTO', 'SINTEGRA(SC)', None),
+            ('FATURAMENTO PARA HONORÁRIO', 'AUTO', 'FATURAMENTO PARA HONORÁRIO', None),
+        ]
+
+        # 2. Tarefas Manuais 
+        tarefas_manuais = [
+            ('Inicio da entrega de empresas com Prioridade Contabil', 'MANUAL', None, None),
+            ('Baixa dos documentos nos sistemas - CONTA AZUL | OMIE', 'MANUAL', None, None),
+            ('Envio Reinf prestados', 'MANUAL', None, None),
+            ('Envio antecipado DCTFWEB - Esquadra | Talogy | LW', 'MANUAL', None, None),
+            ('Revisão e envio Retenção', 'MANUAL', None, None),
+            ('Aviso ao clientes sobre as guias não visualizadas DAS', 'MANUAL', None, None), 
+            ('Aviso ao clientes sobre as guias não visualizadas PIS|COFINS', 'MANUAL', None, None),
+            ('Notas SCRYTA Rotina automatica', 'MANUAL', None, None), 
+            ('Agendamento de coletas', 'MANUAL', None, None)
+        ]
+
+        # ---LIMPEZA DO BANCO ---
+        nomes_validos = [t[0] for t in tarefas_auto]
+        placeholders = ','.join(['?'] * len(nomes_validos))
+        try:
+            self.executar_update(
+                f"DELETE FROM dashboard_checklist WHERE tipo = 'AUTO' AND tarefa_nome NOT IN ({placeholders})",
+                tuple(nomes_validos)
+            )
+        except Exception as e:
+            logging.error(f"Erro ao limpar tarefas antigas: {e}")
+
+        tarefas_totais = tarefas_auto + tarefas_manuais
+        for nome, tipo, termo, dia in tarefas_totais: 
+            try:
+                self.executar_update(
+                    "INSERT OR IGNORE INTO dashboard_checklist (tarefa_nome, tipo, termo_gestta, dia_vencimento) VALUES (?, ?, ?, ?)", 
+                    (nome, tipo, termo, dia)
+                )
+            except Exception:
+                pass
 
     # ==========================================
     # MÉTODOS DE USUÁRIOS E AUTENTICAÇÃO
@@ -250,6 +340,7 @@ class ResilienciaDB:
             cursor = conn.execute("SELECT * FROM usuarios WHERE username = ?", (username,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
 
     def get_user_by_email(self, email):
         with self._conectar() as conn:
@@ -270,8 +361,7 @@ class ResilienciaDB:
     def update_password(self, username, new_hashed_password):
          with self._conectar() as conn:
             conn.execute("UPDATE usuarios SET hashed_password = ? WHERE username = ?", (new_hashed_password, username))
-            conn.commit()       
-
+            conn.commit()        
 
     # ==========================================
     # MÉTODOS DE DOWNLOAD
@@ -325,11 +415,17 @@ class ResilienciaDB:
     # ==========================================
     def registrar_documento_triado(self, id_ticket, original, final, categoria, destino, status, erro="", texto_extraido=None):
         agora = datetime.now().isoformat()
+        
+        if destino == 'NOTAS_DE_SERVICO/TOMADAS' or destino == 'NOTAS_DE_SERVICO\\TOMADAS':
+            status_tomados_inicial = 'PENDENTE'
+        else:
+            status_tomados_inicial = 'IGNORADO_NAO_E_TOMADO'
+
         self.executar_update("""
             INSERT INTO documentos_triados 
-            (id_ticket, nome_original, nome_final, categoria_ia, pasta_destino, status, motivo_erro, data_processamento, texto_extraido)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (id_ticket, original, final, categoria, destino, status, erro, agora, texto_extraido))
+            (id_ticket, nome_original, nome_final, categoria_ia, pasta_destino, status, motivo_erro, data_processamento, texto_extraido, status_tomados)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (id_ticket, original, final, categoria, destino, status, erro, agora, texto_extraido, status_tomados_inicial))
 
     def marcar_ticket_triado(self, id_ticket, status, divergencia=""):
         agora = datetime.now().isoformat()
@@ -354,7 +450,10 @@ class ResilienciaDB:
     def get_documentos_pendentes_tomados(self, limite=50):
         """
         Puxa documentos de notas de serviço que ainda não foram extraídos,
-        GARANTINDO que o ticket inteiro já finalizou a triagem (Trava de Corrida).
+        garantindo que o ticket inteiro já finalizou a triagem.
+
+        Também retorna cod_empresa e competencia para permitir a primeira
+        sincronização automática da malha fiscal com a AWS.
         """
         query = """
             SELECT 
@@ -363,13 +462,17 @@ class ResilienciaDB:
                 d.nome_final, 
                 d.pasta_destino, 
                 d.texto_extraido,
-                down.caminho_pasta AS pasta_raiz_ticket
+                down.caminho_pasta AS pasta_raiz_ticket,
+                TRIM(CAST(down.cod_emp AS TEXT)) AS cod_empresa,
+                strftime('%Y-%m', down.ultima_tentativa) AS competencia
             FROM documentos_triados d
-            INNER JOIN tickets_triados t ON d.id_ticket = t.id_ticket
-            INNER JOIN downloads down ON d.id_ticket = down.id_ticket
+            INNER JOIN tickets_triados t 
+                ON d.id_ticket = t.id_ticket
+            INNER JOIN downloads down 
+                ON d.id_ticket = down.id_ticket
             WHERE d.categoria_ia = 'nota_servico' 
-              AND d.status_tomados = 'PENDENTE'
-              AND t.status_triagem = 'CONCLUIDO'
+            AND d.pasta_destino = 'NOTAS_DE_SERVICO/TOMADAS'
+            AND d.status_tomados = 'PENDENTE'
             ORDER BY d.id ASC
             LIMIT ?
         """
@@ -381,6 +484,160 @@ class ResilienciaDB:
             "UPDATE documentos_triados SET status_tomados = ? WHERE id = ?",
             (status_novo, id_documento)
         )
+
+    # ==========================================
+    # MÉTODOS DA MALHA FISCAL TOMADAS
+    # ==========================================
+    def malha_ja_sincronizada(self, cod_empresa, competencia):
+        """
+        Verifica se já existe consulta AWS salva para a empresa/competência.
+        Usado para garantir a primeira consulta automática sem repetir.
+        """
+        rows = self.executar_query_dict("""
+            SELECT id
+            FROM malha_fiscal_tomadas
+            WHERE TRIM(CAST(cod_empresa AS TEXT)) = ?
+              AND competencia = ?
+            LIMIT 1
+        """, (str(cod_empresa).strip(), competencia))
+
+        return len(rows) > 0
+
+    def get_ultima_atualizacao_malha(self, cod_empresa, competencia):
+        """
+        Retorna a última data/hora em que a AWS foi consultada para essa empresa/competência.
+        """
+        rows = self.executar_query_dict("""
+            SELECT MAX(data_atualizacao) AS ultima_atualizacao
+            FROM malha_fiscal_tomadas
+            WHERE TRIM(CAST(cod_empresa AS TEXT)) = ?
+              AND competencia = ?
+        """, (str(cod_empresa).strip(), competencia))
+
+        if not rows:
+            return None
+
+        return rows[0].get("ultima_atualizacao")
+
+    def limpar_malha_empresa_competencia(self, cod_empresa, competencia):
+        """
+        Limpa os dados antigos antes de uma nova sincronização AWS.
+        """
+        self.executar_update("""
+            DELETE FROM malha_fiscal_tomadas
+            WHERE TRIM(CAST(cod_empresa AS TEXT)) = ?
+              AND competencia = ?
+        """, (str(cod_empresa).strip(), competencia))
+
+    def inserir_nota_malha(
+        self,
+        cod_empresa,
+        competencia,
+        numero_nota,
+        cnpj_prestador,
+        valor_nota,
+        status_conciliacao,
+        origem,
+        data_atualizacao=None
+    ):
+        """
+        Insere uma nota na malha fiscal local.
+        """
+        if data_atualizacao is None:
+            data_atualizacao = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        self.executar_update("""
+            INSERT INTO malha_fiscal_tomadas (
+                cod_empresa,
+                competencia,
+                numero_nota,
+                cnpj_prestador,
+                origem,
+                valor_nota,
+                status_conciliacao,
+                data_atualizacao
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(cod_empresa).strip(),
+            competencia,
+            numero_nota,
+            cnpj_prestador,
+            origem,
+            valor_nota,
+            status_conciliacao,
+            data_atualizacao
+        ))
+
+    def buscar_resultado_tomado_para_malha(self, cod_empresa, numero_nota, cnpj_prestador):
+        """
+        Verifica se uma nota encontrada na AWS existe nos resultados processados pelo Tomados.
+        """
+        return self.executar_query_dict("""
+            SELECT valor_contabil
+            FROM resultados_tomados
+            WHERE numero_documento = ?
+              AND cpf_cnpj = ?
+              AND id_ticket IN (
+                  SELECT id_ticket
+                  FROM downloads
+                  WHERE TRIM(CAST(cod_emp AS TEXT)) = ?
+              )
+        """, (
+            numero_nota,
+            cnpj_prestador,
+            str(cod_empresa).strip()
+        ))
+
+    def listar_tomados_empresa_competencia(self, cod_empresa, competencia):
+        """
+        Lista notas processadas pelo Tomados para a empresa/competência.
+        Garante que a origem do documento era NOTAS_DE_SERVICO/TOMADAS.
+        """
+        return self.executar_query_dict("""
+            SELECT 
+                r.numero_documento, 
+                r.cpf_cnpj, 
+                r.valor_contabil
+            FROM resultados_tomados r
+            INNER JOIN downloads d
+                ON r.id_ticket = d.id_ticket
+            INNER JOIN documentos_triados dt
+                ON r.id_documento = dt.id
+            WHERE TRIM(CAST(d.cod_emp AS TEXT)) = ?
+            AND dt.categoria_ia = 'nota_servico'
+            AND dt.pasta_destino = 'NOTAS_DE_SERVICO/TOMADAS'
+            AND (
+                strftime('%Y-%m', d.ultima_tentativa) = ?
+                OR substr(CAST(d.ultima_tentativa AS TEXT), 1, 7) = ?
+                OR CAST(d.ultima_tentativa AS TEXT) LIKE ? || '%'
+            )
+        """, (
+            str(cod_empresa).strip(),
+            competencia,
+            competencia,
+            competencia
+        ))
+
+    def nota_malha_existe(self, cod_empresa, competencia, numero_nota, cnpj_prestador):
+        """
+        Verifica se determinada nota já existe na malha fiscal.
+        """
+        rows = self.executar_query_dict("""
+            SELECT id
+            FROM malha_fiscal_tomadas
+            WHERE TRIM(CAST(cod_empresa AS TEXT)) = ?
+              AND competencia = ?
+              AND numero_nota = ?
+              AND cnpj_prestador = ?
+            LIMIT 1
+        """, (
+            str(cod_empresa).strip(),
+            competencia,
+            numero_nota,
+            cnpj_prestador
+        ))
+
+        return len(rows) > 0  
 
     # ==========================================
     # MÉTODOS GENÉRICOS (Úteis para API e Workers)

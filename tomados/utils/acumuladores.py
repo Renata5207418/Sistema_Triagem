@@ -1,4 +1,4 @@
-# Dicionário de códigos → valor
+# Dicionário de códigos ? valor
 # Cada chave é uma string que representa o código do acumulador.
 acumuladores = {
     '0161001': '8',

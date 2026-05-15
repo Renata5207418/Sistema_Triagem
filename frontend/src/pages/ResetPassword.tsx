@@ -85,7 +85,7 @@ export const ResetPassword = () => {
                 <label className="text-[10px] uppercase font-black text-gray-400 ml-1 tracking-widest">Nova Senha</label>
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} placeholder="••••••••" required disabled={!token} />
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} placeholder="" required disabled={!token} />
                 </div>
               </div>
 
@@ -93,7 +93,7 @@ export const ResetPassword = () => {
                 <label className="text-[10px] uppercase font-black text-gray-400 ml-1 tracking-widest">Confirmar Senha</label>
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
-                  <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={inputClass} placeholder="••••••••" required disabled={!token} />
+                  <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={inputClass} placeholder="" required disabled={!token} />
                 </div>
               </div>
 

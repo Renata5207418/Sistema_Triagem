@@ -342,7 +342,7 @@ export default function PrioridadeContabilPage() {
     carregarDados();
 
     const intervalo = window.setInterval(() => {
-      carregarDados(true); // atualização silenciosa, sem piscar loading
+      carregarDados(true);
     }, 30000);
 
     return () => {
@@ -353,26 +353,22 @@ export default function PrioridadeContabilPage() {
   useEffect(() => { if (modalOpen) { carregarConfigsModal(); setSearchModal(''); } }, [modalOpen]);
   useEffect(() => { setCurrentPage(1); }, [searchTerm]); 
 
-  // --- FUNÇÃO QUE RODA ENQUANTO O USUÁRIO DIGITA (NOME OU CÓD) ---
   const handleNomeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const valor = e.target.value;
     setNovoApelido(valor);
-    setNovoCodigo(''); // Limpa o código da memória para evitar conflitos
+    setNovoCodigo('');
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
     const valorLimpo = valor.trim();
-    // Verifica se o que o usuário digitou contém apenas números
     const isNumero = /^\d+$/.test(valorLimpo);
 
-    // Nova Regra: Se for número, busca a partir de 1 caracter. Se for texto, exige 3.
     if ((isNumero && valorLimpo.length >= 1) || (!isNumero && valorLimpo.length >= 3)) {
       setBuscando(true);
       setMostrarSugestoes(true);
       
       typingTimeoutRef.current = setTimeout(async () => {
         try {
-          // Passa o valorLimpo para o backend ignorar espaços acidentais no início/fim
           const res = await api.get(`/api/dominio/empresa/buscar?termo=${valorLimpo}`);
           setSugestoes(res.data);
         } catch (err) {
@@ -387,14 +383,12 @@ export default function PrioridadeContabilPage() {
     }
   };
 
-  // --- FUNÇÃO DE QUANDO ELE CLICA NA OPÇÃO DA LISTA ---
   const selecionarEmpresa = (empresa: {codigo: string, apelido: string}) => {
     setNovoCodigo(empresa.codigo);
     setNovoApelido(empresa.apelido);
     setMostrarSugestoes(false);
   };
 
-  // --- BOTÃO ADICIONAR ---
   const handleAddEmpresa = async () => {
     if (!novoCodigo.trim() || !novoApelido.trim()) {
       alert("Por favor, busque e selecione uma empresa na lista suspensa."); 
@@ -446,33 +440,48 @@ export default function PrioridadeContabilPage() {
     } catch (err) { console.error(err); }
   };
 
-  const empresasFiltradas = useMemo(() => {
-    const temRobo = (apelido: string) => {
-      const pasta = pastas.find(p => p.apelido === apelido && p.competencia === mesFiltro);
-      if (!pasta) return false;
-      try {
-        const docs = JSON.parse(pasta.documentos_json || "[]");
-        return docs.some((d: any) => d.isAuto);
-      } catch {
-        return false;
+  // --- NOVA LÓGICA DE PERFORMANCE: MAPA DE PASTAS E ROBÔS ---
+  const pastasMap = useMemo(() => {
+    const map = new Map<string, { pastas: IPasta[], temRobo: boolean }>();
+    
+    pastas.forEach(p => {
+      if (p.competencia === mesFiltro) {
+        if (!map.has(p.apelido)) {
+          map.set(p.apelido, { pastas: [], temRobo: false });
+        }
+        
+        const entry = map.get(p.apelido)!;
+        entry.pastas.push(p);
+        
+        try {
+          const docs = JSON.parse(p.documentos_json || "[]");
+          if (docs.some((d: any) => d.isAuto)) {
+            entry.temRobo = true;
+          }
+        } catch(e) {}
       }
-    };
+    });
+    
+    return map;
+  }, [pastas, mesFiltro]);
 
+  const empresasFiltradas = useMemo(() => {
     return empresas
       .filter(emp => 
         emp.apelido.toLowerCase().includes(searchTerm.toLowerCase()) || 
         (emp.codigo && emp.codigo.includes(searchTerm))
       )
       .sort((a, b) => {
-        const aRobo = temRobo(a.apelido);
-        const bRobo = temRobo(b.apelido);
+        // Busca do cache rápido em vez de processar JSON
+        const aRobo = pastasMap.get(a.apelido)?.temRobo || false;
+        const bRobo = pastasMap.get(b.apelido)?.temRobo || false;
 
         if (aRobo && !bRobo) return -1; 
         if (!aRobo && bRobo) return 1;  
 
         return a.apelido.localeCompare(b.apelido);
       });
-  }, [empresas, pastas, searchTerm, mesFiltro]);
+  }, [empresas, pastasMap, searchTerm]);
 
   const totalPages = Math.ceil(empresasFiltradas.length / itemsPerPage);
   const currentItems = empresasFiltradas.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -523,7 +532,6 @@ export default function PrioridadeContabilPage() {
                 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
                   
-                  {/* Container Relativo do Autocomplete - AGORA É O ÚNICO CAMPO */}
                   <div style={{ flex: 1, position: 'relative' }}>
                     <input 
                       type="text" 
@@ -537,7 +545,6 @@ export default function PrioridadeContabilPage() {
                       style={{ width: '100%', height: '40px', paddingLeft: '12px', boxSizing: 'border-box' }} 
                     />
 
-                    {/* Lista Flutuante de Resultados */}
                     {mostrarSugestoes && (
                       <div style={{
                         position: 'absolute', top: '100%', left: 0, right: 0,
@@ -649,7 +656,8 @@ export default function PrioridadeContabilPage() {
               <tr><td colSpan={3} style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-muted)' }}>Nenhuma empresa encontrada.</td></tr>
             ) : (
               currentItems.map((emp) => {
-                const pastasDaEmpresa = pastas.filter(p => p.apelido === emp.apelido && p.competencia === mesFiltro);
+                // Busca a pasta no mapa em vez de fazer .filter() no array inteiro
+                const pastasDaEmpresa = pastasMap.get(emp.apelido)?.pastas || [];
                 return (
                   <EmpresaRow
                     key={emp.apelido}

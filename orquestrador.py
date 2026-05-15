@@ -5,37 +5,48 @@ import sys
 from logging.handlers import TimedRotatingFileHandler 
 from pathlib import Path
 
+pasta_raiz = Path(__file__).resolve().parent
 
-pasta_raiz = str(Path(__file__).parent)
-if pasta_raiz not in sys.path:
-    sys.path.append(pasta_raiz)
+if str(pasta_raiz) not in sys.path:
+    sys.path.append(str(pasta_raiz))
 
 # ==========================================
-# CONFIGURAÇÃO DE LOGS (Terminal + Arquivo)
+# CONFIGURAÇÃO DE LOGS ISOLADOS
 # ==========================================
-pasta_logs = pasta_raiz / "logs"
-pasta_logs.mkdir(exist_ok=True)
+def configurar_log_processo(nome_processo: str):
+    """
+    Cria um arquivo de log independente para cada processo.
+    Isso impede que o Windows bloqueie o arquivo (WinError 32)
+    quando dois processos tentam escrever ou rotacionar ao mesmo tempo.
+    """
+    pasta_logs = pasta_raiz / "logs"
+    pasta_logs.mkdir(exist_ok=True)
+    
+    arquivo_log = pasta_logs / f"{nome_processo}.log"
+    
+    # Cria um arquivo novo todo dia à meia-noite e mantém histórico de 60 dias
+    file_handler = TimedRotatingFileHandler(
+        filename=arquivo_log,
+        when="midnight",     
+        interval=1,          
+        backupCount=60,      
+        encoding='utf-8'
+    )
+    file_handler.suffix = "%Y-%m-%d.log" 
+    
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Limpa os handlers anteriores para não duplicar os logs no terminal
+    logger = logging.getLogger()
+    if logger.hasHandlers():
+        logger.handlers.clear()
 
-arquivo_log = pasta_logs / "sistema_rpa.log"
-
-# Cria um arquivo novo todo dia à meia-noite e mantém histórico de 30 dias
-file_handler = TimedRotatingFileHandler(
-    filename=arquivo_log,
-    when="midnight",     
-    interval=1,          
-    backupCount=60,      
-    encoding='utf-8'
-)
-file_handler.suffix = "%Y-%m-%d.log" 
-
-console_handler = logging.StreamHandler(sys.stdout)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(processName)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[file_handler, console_handler] 
-)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(processName)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[file_handler, console_handler] 
+    )
 
 from download.main import executar_download
 from triagem.main import executar_triagem
@@ -46,6 +57,7 @@ from tomados.main import executar_tomados
 # LOOPS INDIVIDUAIS DE CADA ROBÔ
 # ==========================================
 def worker_download():
+    configurar_log_processo("download")
     """Busca novas solicitações a cada 1 hora."""
     while True:
         try:
@@ -58,6 +70,7 @@ def worker_download():
         time.sleep(3600)
 
 def worker_triagem():
+    configurar_log_processo("triagem")
     """Pergunta ao banco se existem novos downloads a cada 2 minutos."""
     while True:
         try:
@@ -68,6 +81,7 @@ def worker_triagem():
         time.sleep(120)
 
 def worker_tomados():
+    configurar_log_processo("tomados")
     """Pergunta ao banco se a triagem liberou novos lotes."""
     while True:
         try:
@@ -85,6 +99,7 @@ def worker_tomados():
 # O CHEFE (ORQUESTRADOR CENTRAL)
 # ==========================================
 if __name__ == "__main__":
+    configurar_log_processo("orquestrador")
     logging.info("=== INICIANDO ORQUESTRADOR CENTRAL RPA ===")
 
     # Cria os processos separados na memória
@@ -109,3 +124,4 @@ if __name__ == "__main__":
         p_triagem.terminate()
         p_tomados.terminate()
         logging.info("Sistema finalizado.")
+        

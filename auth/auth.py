@@ -28,7 +28,7 @@ router = APIRouter(
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
-    raise RuntimeError("⚠️  SECRET_KEY não definida no arquivo .env")
+    raise RuntimeError("??  SECRET_KEY não definida no arquivo .env")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 300
 
@@ -158,7 +158,7 @@ async def forgot_password(payload: dict):
         )
 
     token = create_access_token(data={"sub": user["username"]}, expires_delta=timedelta(minutes=15))
-    reset_link = f"http://localhost:5173/reset-password?token={token}"
+    reset_link = f"http://localhost:5174/reset-password?token={token}"
 
     msg = MIMEMultipart('alternative') 
     msg['From'] = SMTP_USER

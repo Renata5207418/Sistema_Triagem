@@ -7,7 +7,8 @@ from pathlib import Path
 DB_PATH = Path(__file__).parent.parent.parent / "banco_rpa.db"
 
 def dados_fornecedor(cnpj: str):
-    cnpj_limpo = re.sub(r'[^0-9]', '', cnpj).zfill(14)
+    # Removido o zfill para não adicionar zeros à esquerda em CPFs/CNPJs
+    cnpj_limpo = re.sub(r'[^0-9]', '', cnpj)
     
     # 1. Tenta buscar no cache local primeiro
     dados_locais = buscar_no_cache(cnpj_limpo)
@@ -59,3 +60,4 @@ def salvar_no_cache(cnpj, dados):
             (cnpj, razao_social, uf, municipio, cnae, data_ultima_consulta)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (cnpj, dados['razao_social'], dados['uf'], dados['municipio'], dados['cnae'], agora))
+        

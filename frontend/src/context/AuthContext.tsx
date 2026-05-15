@@ -25,8 +25,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUser = useCallback(async () => {
     try {
-      // Como o api.ts agora aponta para http://127.0.0.1:8000
-      // Esta chamada vai bater certinho em http://127.0.0.1:8000/auth/me
       const { data } = await api.get('/auth/me'); 
       setUser(data);
     } catch (err: any) {

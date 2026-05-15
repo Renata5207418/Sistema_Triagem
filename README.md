@@ -150,7 +150,8 @@ python orquestrador.py
 Em terminais separados, inicie o backend e o frontend:
 ```bash
 # Terminal 1 (Backend - FastAPI):
-uvicorn api.api:app --host 0.0.0.0 --port 8000
+cd dashboard
+uvicorn api:app --host 0.0.0.0 --port 8000
 
 # Terminal 2 (Frontend - React):
 cd frontend

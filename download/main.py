@@ -8,6 +8,7 @@ import pyotp
 import zipfile
 import rarfile
 from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 from rapidfuzz import process, fuzz
 from playwright.sync_api import sync_playwright
@@ -61,6 +62,30 @@ URL_BASE_API = "https://onvio.com.br/api/service-requesting/v1"
 # ==========================================
 # 1. AUXILIARES DE EXTRAÇÃO E BUSCA
 # ==========================================
+def obter_mes_competencia(data_iso: str) -> str:
+    """Calcula a competência (Mês - 1) com base na data de criação da OS."""
+    if not data_iso:
+        return "Sem_Data"
+    
+    try:
+        # A data vem do Onvio no formato "2026-05-05T14:30:00Z"
+        data_pura = data_iso.split("T")[0]
+        data_obj = datetime.strptime(data_pura, "%Y-%m-%d")
+        
+        mes = data_obj.month - 1
+        ano = data_obj.year
+        
+        # Se for Janeiro (0), a competência é Dezembro (12) do ano anterior
+        if mes == 0:
+            mes = 12
+            ano -= 1
+            
+        return f"{mes:02d}.{ano}"
+    except Exception as e:
+        logging.error(f"Erro ao calcular competência da data {data_iso}: {e}")
+        return "Sem_Data"
+
+
 def tratar_compactados(caminho_arquivo, pasta_destino):
     teve_erro = False
     msg_erro = ""
@@ -125,7 +150,7 @@ def descobrir_codigo_empresa(nome_onvio, mapa_empresas):
     if match and match[1] >= 80:
         return mapa_empresas[match[0]]
     
-    logging.warning(f"❌ Sem match seguro para: {nome_onvio}")
+    logging.warning(f"? Sem match seguro para: {nome_onvio}")
     return "0"
 
 
@@ -285,13 +310,9 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
     else:
         cod_emp = descobrir_codigo_empresa(nome_cliente, mapa_empresas)
     
+    # === APLICAÇÃO DA NOVA FUNÇÃO DE COMPETÊNCIA ===
     data_iso = ticket_obj.get("created", "")
-    if data_iso:
-        data_pura = data_iso.split("T")[0]
-        ano, mes, _ = data_pura.split("-")
-        pasta_periodo = f"{mes}.{ano}"
-    else:
-        pasta_periodo = "Sem_Data"
+    pasta_periodo = obter_mes_competencia(data_iso)
 
     nome_pasta_cliente = re.sub(r'[\\/*?:"<>|]', "-", nome_cliente)
     anexos = buscar_anexos(http, uuid)
@@ -328,7 +349,7 @@ def baixar_ticket(http, db_res, ticket_obj, mapa_empresas):
                     status_final = "ALERTA_HUMANO"
                     erro_detalhe = msg
             
-            logging.info(f"Ticket [{num_ticket}]: Arquivo {nome_arquivo} baixado.")
+            logging.info(f"Ticket [{num_ticket}]: Arquivo {nome_arquivo} baixado na competência {pasta_periodo}.")
         else:
             status_final = "ERRO_API"
             erro_detalhe = "Falha ao gerar link de download"
@@ -397,3 +418,4 @@ def executar_download():
 
 if __name__ == "__main__":
     executar_download()
+    

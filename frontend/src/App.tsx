@@ -29,7 +29,7 @@ function LayoutPrincipal() {
   const location = useLocation();
   const { logout, user } = useAuth();
   
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const toggleSidebar = () => {
     setIsCollapsed(!isCollapsed);
