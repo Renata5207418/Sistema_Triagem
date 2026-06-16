@@ -551,9 +551,16 @@ def processar_ticket(id_ticket: int, caminho_pasta: str, qtd_esperada: int, cod_
             mover_arquivo_seguro(arquivo, caminho_final)
             
             erro_str = str(e).lower()
-            # Unificado para o texto do seu banco original
             status_erro = "PENDENTE_SENHA" if "pass" in erro_str or "protegido" in erro_str else "ERRO"
-            db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ERRO", "ERRO_PROCESSAMENTO", status_erro, str(e))
+            
+            if "failed to open file" in erro_str or "cannot open" in erro_str:
+                mensagem_erro = "Arquivo corrompido ou atalho inválido"
+            elif status_erro == "PENDENTE_SENHA":
+                mensagem_erro = "Protegido por senha"
+            else:
+                mensagem_erro = f"Erro de leitura: {str(e)[:60]}" 
+
+            db.registrar_documento_triado(id_ticket, arquivo.name, caminho_final.name, "ERRO", "ERRO_PROCESSAMENTO", status_erro, mensagem_erro)
 
     limpar_pastas_vazias(pasta_ticket)
     db.marcar_ticket_triado(id_ticket, "CONCLUIDO" if arquivos_encontrados == qtd_esperada else "CONCLUIDO_COM_DIVERGENCIA")

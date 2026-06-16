@@ -310,7 +310,19 @@ export default function Acompanhamento() {
 
   const getMotivoExibicao = (doc: any) => {
     if (doc.categoria_ia === 'documento_unificado') return 'MÚLTIPLOS TIPOS';
-    return doc.motivo_erro || 'Erro Desconhecido';
+    
+    const erro = doc.motivo_erro || '';
+    const erroLower = erro.toLowerCase();
+
+    // Traduz erros técnicos de sistema para o usuário final
+    if (erroLower.includes('failed to open file') || erroLower.includes('cannot open')) {
+      return 'Arquivo corrompido, atalho ou inacessível';
+    }
+    if (erroLower.includes('pass') || erroLower.includes('protegido') || erroLower.includes('password')) {
+      return 'Protegido por senha';
+    }
+    
+    return erro || 'Erro Desconhecido';
   };
 
   const motivosErroUnicos = useMemo(() => {
